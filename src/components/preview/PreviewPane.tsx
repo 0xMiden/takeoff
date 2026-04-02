@@ -14,12 +14,25 @@ export function PreviewPane() {
   const appFile = dappFiles.get("/src/App.tsx");
   const code = appFile?.content ?? "";
 
-  // Expose compiled contract .masp bytes on window for dApp code to access
+  // Expose compiled contract data on window for dApp code to access
   useEffect(() => {
-    const contractData: Record<string, Uint8Array> = {};
+    const contractData: Record<
+      string,
+      {
+        packageBytes: Uint8Array;
+        componentPackage: string;
+        methods: string[];
+        accountId?: string;
+      }
+    > = {};
     for (const [name, entry] of contracts) {
       if (entry.packageBytes) {
-        contractData[name] = entry.packageBytes;
+        contractData[name] = {
+          packageBytes: entry.packageBytes,
+          componentPackage: entry.componentPackage ?? "",
+          methods: entry.methods ?? [],
+          accountId: entry.accountId,
+        };
       }
     }
     (window as unknown as Record<string, unknown>).__TAKEOFF_CONTRACTS = contractData;

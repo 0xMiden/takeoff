@@ -204,8 +204,11 @@ export default function App() {
 
 Use \`useMiden().client\` to access the WebClient. Wrap all calls in \`runExclusive\`.
 
-The compiled contract's .masp bytes are available at \`window.__TAKEOFF_CONTRACTS["my-contract"]\`.
-Use these to link the contract library for transaction scripts.
+Compiled contract data is available at \`window.__TAKEOFF_CONTRACTS["contract-name"]\` with:
+- \`.packageBytes\` — the compiled .masp Uint8Array
+- \`.componentPackage\` — e.g. "miden:counter-contract" (from Cargo.toml)
+- \`.methods\` — e.g. ["get_count", "increment_count"] (from lib.rs)
+- \`.accountId\` — the deployed hex account ID
 
 ### Complete example — read storage + execute increment:
 \`\`\`tsx
@@ -269,23 +272,30 @@ export default function App() {
         const account = await getContractAccount();
         if (!account) throw new Error("Contract account not found");
 
-        // Get the compiled .masp library from the playground
-        const maspBytes = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
-        if (!maspBytes) throw new Error("Compiled contract not found. Compile first.");
+        // Get the compiled contract data from the playground
+        const contractData = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
+        if (!contractData) throw new Error("Compiled contract not found. Compile first.");
 
         // Deserialize package and get the library
-        const pkg = Package.deserialize(maspBytes);
+        const pkg = Package.deserialize(contractData.packageBytes);
         const library = pkg.asLibrary();
 
         // Link the library and compile the transaction script
         const builder = client.createCodeBuilder();
         builder.linkDynamicLibrary(library);
 
-        // The procedure path uses the WIT component model convention:
-        // "package:name/interface@version"::"procedure-name"
-        // Note: hyphens in names, NOT underscores. And quoted with ::""
+        // Build the procedure call path from metadata:
+        // WIT convention: "package/interface@version"::"method-name"
+        // The component package (e.g., "miden:counter-contract") determines the path.
+        // The interface name matches the last part of the package.
+        // Methods use hyphens: increment_count → increment-count
+        const pkg_name = contractData.componentPackage; // e.g. "miden:counter-contract"
+        const iface = pkg_name.split(":").pop(); // e.g. "counter-contract"
+        const method = "increment-count"; // Use hyphens, not underscores
+        const procPath = \`"\${pkg_name}/\${iface}@0.1.0"::"\${method}"\`;
+
         const txScript = builder.compileTxScript(
-          'begin\\n  call.::"miden:counter-contract/counter-contract@0.1.0"::"increment-count"\\nend'
+          \`begin\\n  call.::\${procPath}\\nend\`
         );
 
         const txRequest = new TransactionRequestBuilder()
@@ -316,14 +326,16 @@ export default function App() {
 ### KEY POINTS:
 - Use \`useMiden().client\` — it IS the real WebClient
 - ALWAYS wrap client calls in \`runExclusive\`
-- \`window.__TAKEOFF_CONTRACTS["contract-name"]\` has the compiled .masp Uint8Array bytes
-- \`Package.deserialize(bytes).asLibrary()\` gets the compiled Library (no MASM source needed)
-- \`builder.linkDynamicLibrary(library)\` links the compiled library for use in TX scripts
-- TX scripts call procedures by their full WIT path: \`call.::"package:name/interface@version"::"procedure-name"\`
-- For \`package = "miden:counter-contract"\`, version \`0.1.0\`, procedure \`increment_count\`:
-  Path is: \`"miden:counter-contract/counter-contract@0.1.0"::"increment-count"\`
-- Note: procedure names use HYPHENS (WIT convention), not underscores: \`increment-count\` not \`increment_count\`
-- No \`use\` statement needed — just \`begin ... call.::\"..\" ... end\`
+- \`window.__TAKEOFF_CONTRACTS["name"]\` has: \`.packageBytes\`, \`.componentPackage\`, \`.methods\`, \`.accountId\`
+- \`Package.deserialize(data.packageBytes).asLibrary()\` gets the compiled Library
+- \`builder.linkDynamicLibrary(library)\` links it for TX scripts
+- Build procedure path from metadata:
+  \`const pkg = data.componentPackage; // "miden:counter-contract"\`
+  \`const iface = pkg.split(":").pop(); // "counter-contract"\`
+  \`const method = "increment-count"; // hyphens, not underscores!\`
+  \`const path = \\\`"\${pkg}/\${iface}@0.1.0"::"\${method}"\\\`;\`
+- TX script: \`begin\\n  call.::\${path}\\nend\` — no \`use\` statement needed
+- Method names convert underscores to hyphens: \`increment_count\` → \`increment-count\`
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 
 ## Deployed contracts

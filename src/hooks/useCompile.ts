@@ -27,8 +27,31 @@ export function useCompile() {
       // Build files map from virtual FS
       const files: Record<string, string> = {};
       for (const [path, file] of contractFiles) {
-        // Strip leading slash for the backend
         files[path.replace(/^\//, "")] = file.content;
+      }
+
+      // Extract metadata from Cargo.toml and lib.rs for use in dApp TX scripts
+      const cargoToml = files["Cargo.toml"] ?? "";
+      const libRs = files["src/lib.rs"] ?? "";
+
+      // Parse component package from Cargo.toml: package = "miden:counter-contract"
+      const pkgMatch = cargoToml.match(/\[package\.metadata\.component\][\s\S]*?package\s*=\s*"([^"]+)"/);
+      const componentPackage = pkgMatch?.[1] ?? "";
+
+      // Parse public method names from lib.rs: pub fn method_name
+      const methods = [...libRs.matchAll(/pub\s+fn\s+(\w+)/g)].map(m => m[1]);
+
+      // Store metadata on the contract entry
+      if (componentPackage || methods.length > 0) {
+        usePlaygroundStore.getState().contracts.get(contractName);
+        usePlaygroundStore.setState((state) => {
+          const contracts = new Map(state.contracts);
+          const entry = contracts.get(contractName);
+          if (entry) {
+            contracts.set(contractName, { ...entry, componentPackage, methods });
+          }
+          return { contracts };
+        });
       }
 
       await compileContract(files, {

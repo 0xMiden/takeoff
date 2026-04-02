@@ -23,6 +23,8 @@ export interface ContractEntry {
   deployStatus: DeployStatus;
   accountId?: string;
   packageBytes?: Uint8Array;
+  componentPackage?: string; // e.g. "miden:counter-contract" from Cargo.toml
+  methods?: string[]; // e.g. ["get_count", "increment_count"] from lib.rs
   error?: string;
 }
 
