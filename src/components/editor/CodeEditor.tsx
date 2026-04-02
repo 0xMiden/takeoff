@@ -16,7 +16,7 @@ const LANGUAGE_MAP: Record<string, string> = {
 };
 
 export function CodeEditor() {
-  const activeFile = usePlaygroundStore((s) => s.activeFile);
+  const activeFile = usePlaygroundStore((s) => s.getEditorState().activeFile);
   const files = usePlaygroundStore((s) => s.getFiles());
   const updateFile = usePlaygroundStore((s) => s.updateFile);
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);

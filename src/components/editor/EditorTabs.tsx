@@ -3,8 +3,8 @@ import { cn } from "@/lib/cn";
 import { X } from "lucide-react";
 
 export function EditorTabs() {
-  const openFiles = usePlaygroundStore((s) => s.openFiles);
-  const activeFile = usePlaygroundStore((s) => s.activeFile);
+  const openFiles = usePlaygroundStore((s) => s.getEditorState().openFiles);
+  const activeFile = usePlaygroundStore((s) => s.getEditorState().activeFile);
   const setActiveFile = usePlaygroundStore((s) => s.setActiveFile);
   const closeFile = usePlaygroundStore((s) => s.closeFile);
   const files = usePlaygroundStore((s) => s.getFiles());

@@ -5,7 +5,7 @@ export function useInitialFiles() {
   const mode = usePlaygroundStore((s) => s.mode);
   const files = usePlaygroundStore((s) => s.getFiles());
   const openFile = usePlaygroundStore((s) => s.openFile);
-  const activeFile = usePlaygroundStore((s) => s.activeFile);
+  const activeFile = usePlaygroundStore((s) => s.getEditorState().activeFile);
 
   // Open the first file on mode switch if nothing is open
   useEffect(() => {

@@ -6,7 +6,7 @@ import { Files } from "lucide-react";
 
 export function FileExplorer() {
   const files = usePlaygroundStore((s) => s.getFiles());
-  const activeFile = usePlaygroundStore((s) => s.activeFile);
+  const activeFile = usePlaygroundStore((s) => s.getEditorState().activeFile);
   const openFile = usePlaygroundStore((s) => s.openFile);
 
   const tree = useMemo(() => buildFileTree(files), [files]);
