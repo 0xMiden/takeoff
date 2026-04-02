@@ -117,19 +117,18 @@ export async function* compileContract(
     const pkgMatch = cargoToml.match(/\[package\.metadata\.component\][\s\S]*?package\s*=\s*"([^"]+)"/);
     const componentPackage = pkgMatch?.[1] ?? "";
 
-    // Auto-generate and compile tx-scripts for each public method
+    // Auto-generate and compile tx-scripts for each public method in ONE Docker run
     const txScripts: Record<string, string> = {};
     if (componentPackage && methods.length > 0) {
       yield { type: "output", text: "\nGenerating transaction scripts..." };
 
+      // Create all tx-script projects on the host
       for (const method of methods) {
-        try {
-          const txDir = join(tmpDir, `__tx_${method}`);
-          await mkdir(join(txDir, "src"), { recursive: true });
+        const txDir = join(tmpDir, `__tx_${method}`);
+        await mkdir(join(txDir, "src"), { recursive: true });
 
-          // Cargo.toml for the tx-script
-          await writeFile(join(txDir, "Cargo.toml"), `[package]
-name = "tx-${method}"
+        await writeFile(join(txDir, "Cargo.toml"), `[package]
+name = "tx-${method.replace(/_/g, "-")}"
 version = "0.1.0"
 edition = "2024"
 
@@ -140,20 +139,19 @@ crate-type = ["cdylib"]
 miden = "0.10.0"
 
 [package.metadata.component]
-package = "miden:tx-${method}"
+package = "miden:tx-${method.replace(/_/g, "-")}"
 
 [package.metadata.miden]
 project-kind = "transaction-script"
 
 [package.metadata.miden.dependencies]
-"${componentPackage}" = { path = "${tmpDir}" }
+"${componentPackage}" = { path = "/project" }
 
 [package.metadata.component.target.dependencies]
-"${componentPackage}" = { path = "${tmpDir}/target/generated-wit/" }
+"${componentPackage}" = { path = "/project/target/generated-wit/" }
 `, "utf-8");
 
-          // lib.rs for the tx-script
-          await writeFile(join(txDir, "src", "lib.rs"), `#![no_std]
+        await writeFile(join(txDir, "src", "lib.rs"), `#![no_std]
 #![feature(alloc_error_handler)]
 use miden::*;
 use crate::bindings::Account;
@@ -163,27 +161,34 @@ fn run(_arg: Word, account: &mut Account) {
     account.${method}();
 }
 `, "utf-8");
+      }
 
-          // Compile the tx-script
-          const txExitCode = await new Promise<number>((resolve, reject) => {
-            const proc = spawn("docker", [
-              "run", "--rm",
-              "--memory=2g", "--cpus=2",
-              `-v=${tmpDir}:${tmpDir}`,
-              `-v=${txDir}:/tx-project`,
-              `-w=/tx-project`,
-              DOCKER_IMAGE,
-              "cargo", "miden", "build", "--release",
-            ]);
-            const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX script compile timeout")); }, COMPILE_TIMEOUT_MS);
-            proc.stdout.on("data", () => {});
-            proc.stderr.on("data", () => {});
-            proc.on("close", (code) => { clearTimeout(timeout); resolve(code ?? 1); });
-            proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
-          });
+      // Build a bash script that compiles all tx-scripts sequentially
+      const buildScript = methods.map(m =>
+        `cd /project/__tx_${m} && cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
+      ).join(" && ");
 
-          if (txExitCode === 0) {
-            const txMaspPath = await findMasp(txDir);
+      try {
+        const txOutput = await new Promise<string>((resolve, reject) => {
+          const proc = spawn("docker", [
+            "run", "--rm",
+            "--memory=2g", "--cpus=2",
+            `-v=${tmpDir}:/project`,
+            DOCKER_IMAGE,
+            "bash", "-c", buildScript,
+          ]);
+          let output = "";
+          const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX scripts compile timeout")); }, COMPILE_TIMEOUT_MS * 2);
+          proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
+          proc.stderr.on("data", (d: Buffer) => { output += d.toString(); });
+          proc.on("close", () => { clearTimeout(timeout); resolve(output); });
+          proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
+        });
+
+        // Collect results
+        for (const method of methods) {
+          if (txOutput.includes(`TX_OK:${method}`)) {
+            const txMaspPath = await findMasp(join(tmpDir, `__tx_${method}`));
             if (txMaspPath) {
               const txMaspBytes = await readFile(txMaspPath);
               txScripts[method] = txMaspBytes.toString("base64");
@@ -192,9 +197,9 @@ fn run(_arg: Word, account: &mut Account) {
           } else {
             yield { type: "output", text: `  ✗ TX script for ${method} failed` };
           }
-        } catch (e) {
-          yield { type: "output", text: `  ✗ TX script for ${method}: ${e}` };
         }
+      } catch (e) {
+        yield { type: "output", text: `  ✗ TX scripts: ${e}` };
       }
     }
 
