@@ -202,54 +202,30 @@ export default function App() {
 
 ## Calling Custom Contract Methods
 
-Use \`useMiden().client\` to access the WebClient directly. It IS the real WebClient instance and has
-all methods: \`getAccount\`, \`createCodeBuilder\`, \`submitNewTransaction\`, \`importAccountById\`, etc.
-Wrap all client calls in \`runExclusive\` to prevent concurrent WASM access.
+Use \`useMiden().client\` to access the WebClient directly. Wrap all client calls in \`runExclusive\`.
 
-### Complete working example for a counter contract dApp:
+NOTE: For Rust-compiled contracts, calling contract methods via transaction scripts requires the
+compiled contract library. This is complex and not fully supported in the playground preview yet.
+For now, focus on READING contract storage (which works) and show a placeholder for writes.
+
+### Reading contract storage (WORKS):
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { AccountId, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
+import { AccountId } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
 
-// The MASM source code of the counter contract
-const COUNTER_CONTRACT_CODE = \`
-  use miden::protocol::active_account
-  use miden::protocol::native_account
-  use miden::core::word
-  use miden::core::sys
-
-  const COUNTER_SLOT = word("miden::component::miden_counter_contract::count_map")
-
-  pub proc get_count
-      push.COUNTER_SLOT[0..2] exec.active_account::get_item
-      exec.sys::truncate_stack
-  end
-
-  pub proc increment_count
-      push.COUNTER_SLOT[0..2] exec.active_account::get_item
-      add.1
-      push.COUNTER_SLOT[0..2] exec.native_account::set_item
-      exec.sys::truncate_stack
-  end
-\`;
-
 export default function App() {
   const { isReady, signerAccountId, client, runExclusive } = useMiden();
-  const { syncHeight, sync } = useSyncState();
+  const { syncHeight } = useSyncState();
   const [counterValue, setCounterValue] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
 
-  // Read counter value
   const fetchCounter = useCallback(async () => {
     if (!client) return;
     try {
       await runExclusive(async () => {
         const accountId = AccountId.fromHex(CONTRACT_ID);
-
         let account = await client.getAccount(accountId);
         if (!account) {
           await client.importAccountById(accountId);
@@ -258,8 +234,21 @@ export default function App() {
         }
         if (!account) return;
 
-        const slotName = "miden::component::miden_counter_contract::count_map";
-        const value = account.storage().getItem(slotName);
+        // List all storage slot names to find the right one
+        const slotNames = account.storage().getSlotNames();
+        console.log("Storage slots:", slotNames);
+
+        // Try reading from the counter storage
+        // Slot name pattern: "miden::component::<package_with_underscores>::<field>"
+        for (const name of slotNames) {
+          const value = account.storage().getItem(name);
+          if (value) {
+            console.log("Slot", name, "=", value.toHex());
+          }
+        }
+
+        // Read specific slot (adjust name based on console output above)
+        const value = account.storage().getItem(slotNames[0]);
         if (value) {
           const hex = value.toHex();
           const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
@@ -271,61 +260,22 @@ export default function App() {
     }
   }, [client, runExclusive]);
 
-  // Increment counter
-  const increment = useCallback(async () => {
-    if (!client) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      await runExclusive(async () => {
-        const accountId = AccountId.fromHex(CONTRACT_ID);
-
-        let account = await client.getAccount(accountId);
-        if (!account) {
-          await client.importAccountById(accountId);
-          await client.syncState();
-          account = await client.getAccount(accountId);
-        }
-
-        const builder = client.createCodeBuilder();
-        const lib = builder.buildLibrary("external_contract::counter_contract", COUNTER_CONTRACT_CODE);
-        builder.linkDynamicLibrary(lib);
-
-        const txScript = builder.compileTxScript(
-          "use external_contract::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
-        );
-
-        const txRequest = new TransactionRequestBuilder()
-          .withCustomScript(txScript)
-          .build();
-
-        await client.submitNewTransaction(account.id(), txRequest);
-      });
-      await sync();
-      await fetchCounter();
-    } catch (err) {
-      setError(err.message || "Transaction failed");
-      console.error("Increment failed:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [client, runExclusive, sync, fetchCounter]);
-
   useEffect(() => {
     if (isReady) fetchCounter();
   }, [isReady, syncHeight, fetchCounter]);
 
-  // ... render UI with counterValue, increment, isLoading, error
+  // ... render UI
 }
 \`\`\`
 
 ### KEY POINTS:
-- Use \`useMiden().client\` — it IS the real WebClient, not a proxy
-- ALWAYS wrap client calls in \`runExclusive\` to prevent concurrent WASM access
-- Use \`client.importAccountById()\` to import the contract account if not found locally
-- The MASM contract code must be provided as a string to \`buildLibrary()\`
-- The storage slot constant name matches the pattern \`miden::component::<package>::<field>\`
-- ALL imports must be STATIC at the top of the file. Do NOT use dynamic import().
+- Use \`useMiden().client\` — it IS the real WebClient
+- ALWAYS wrap client calls in \`runExclusive\`
+- Use \`client.importAccountById()\` to import contract account if not found locally
+- Use \`account.storage().getSlotNames()\` to discover storage slot names
+- Use \`account.storage().getItem(slotName)\` to read Value slots
+- Use \`account.storage().getMapItem(slotName, key)\` to read StorageMap entries
+- ALL imports must be STATIC at the top. Do NOT use dynamic import().
 
 ## Deployed contracts
 ${contractList}
