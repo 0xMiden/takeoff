@@ -22,6 +22,17 @@ export function extractCodeBlocks(content: string): ExtractedCodeBlock[] {
       cleanCode = code.split("\n").slice(1).join("\n").trim();
     }
 
+    // Default path based on language if AI didn't include one
+    if (!suggestedPath) {
+      if (language === "tsx" || language === "typescriptreact") {
+        suggestedPath = "/src/App.tsx";
+      } else if (language === "rust" || language === "rs") {
+        suggestedPath = "/src/lib.rs";
+      } else if (language === "toml") {
+        suggestedPath = "/Cargo.toml";
+      }
+    }
+
     blocks.push({ language, code: cleanCode, suggestedPath });
   }
 
