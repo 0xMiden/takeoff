@@ -209,7 +209,7 @@ create a dedicated WebClient instance. This is the PROVEN pattern from the offic
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { WebClient, Address, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
+import { WebClient, AccountId, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
 const RPC_URL = "https://rpc.testnet.miden.io";
@@ -253,7 +253,6 @@ export default function App() {
     try {
       const client = await getClient();
       // Import the contract account if not yet known
-      const { AccountId } = await getModules();
       const accountId = AccountId.fromHex(CONTRACT_ID);
 
       let account = await client.getAccount(accountId);
@@ -282,7 +281,6 @@ export default function App() {
     setError(null);
     try {
       const client = await getClient();
-      const { AccountId } = await getModules();
       const accountId = AccountId.fromHex(CONTRACT_ID);
 
       let account = await client.getAccount(accountId);
@@ -322,11 +320,7 @@ export default function App() {
   // ... render UI here
 }
 
-// Helper to avoid issues with static imports of WASM types
-async function getModules() {
-  const sdk = await import("@miden-sdk/miden-sdk");
-  return sdk;
-}
+// All @miden-sdk/miden-sdk types are imported statically at the top of the file.
 \`\`\`
 
 ### KEY POINTS:
@@ -334,7 +328,7 @@ async function getModules() {
 - Use \`client.importAccountById()\` to import the contract account if not found locally
 - The MASM contract code must be provided as a string to \`buildLibrary()\`
 - The storage slot constant name matches the pattern \`miden::component::<package>::<field>\`
-- Use \`getModules()\` async helper for WASM type imports that may fail as static imports
+- ALL imports must be STATIC at the top of the file. Do NOT use dynamic import() — it does not work in the preview.
 
 ## Deployed contracts
 ${contractList}
@@ -354,7 +348,7 @@ ${contractList}
 - Transaction stages: idle → executing → proving → submitting → complete
 - NEVER comment out real code and replace with setTimeout simulations. Write the real API calls.
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
-- Import WebClient, TransactionRequestBuilder etc. from "@miden-sdk/miden-sdk" as static imports OR via async \`getModules()\` helper
+- Import WebClient, AccountId, TransactionRequestBuilder etc. from "@miden-sdk/miden-sdk" as STATIC imports at the top. NEVER use dynamic import().
 - Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
 - Deployed contract IDs from the contract list are hex strings (e.g., "0x1234abcd..."). Use \`AccountId.fromHex(id)\` to convert them.
 - For contract interaction, create a FRESH WebClient via \`WebClient.createClient("https://rpc.testnet.miden.io")\` — do NOT use the react-sdk's client`;
