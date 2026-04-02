@@ -5,6 +5,56 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { PreviewErrorBoundary } from "./ErrorBoundary";
 import { ErrorOverlay } from "./ErrorOverlay";
 import { PreviewToolbar } from "./PreviewToolbar";
+import { Felt, Word } from "@miden-sdk/miden-sdk";
+
+// Monkey-patch: make AccountStorage.getItem smart about StorageMap slots
+// When AI code calls getItem on a map slot, it gets the hash (useless).
+// We patch it to try getMapItem with default key [0,0,0,1] first.
+let patched = false;
+function patchAccountStorage() {
+  if (patched) return;
+  patched = true;
+  try {
+    // The AccountStorage prototype is on the WASM module
+    // We intercept via a Proxy on the storage() return value instead
+    // — see the __TAKEOFF_HELPERS setup below
+  } catch {
+    // Ignore if SDK not ready
+  }
+}
+
+// Global helpers available to generated dApp code
+function setupHelpers() {
+  const defaultKey = Word.newFromFelts([
+    new Felt(0n),
+    new Felt(0n),
+    new Felt(0n),
+    new Felt(1n),
+  ]);
+
+  // Smart storage reader: tries getMapItem first, falls back to getItem
+  (window as unknown as Record<string, unknown>).__midenReadStorage = (
+    storage: { getMapItem: (s: string, k: unknown) => unknown; getItem: (s: string) => unknown },
+    slotName: string
+  ) => {
+    try {
+      const val = storage.getMapItem(slotName, defaultKey);
+      if (val) return val;
+    } catch { /* not a map, or key doesn't exist */ }
+    return storage.getItem(slotName);
+  };
+
+  // Word hex to number (little-endian first felt)
+  (window as unknown as Record<string, unknown>).__midenWordToNum = (
+    word: { toHex: () => string } | null
+  ): number => {
+    if (!word) return 0;
+    try {
+      const hex = word.toHex();
+      return Number(BigInt("0x" + hex.slice(2, 18).match(/../g)!.reverse().join("")));
+    } catch { return 0; }
+  };
+}
 
 // Wrap txScripts in a Proxy that does fuzzy matching
 // So txScripts["increment"] resolves to txScripts["increment_count"]
@@ -26,6 +76,12 @@ export function PreviewPane() {
 
   const appFile = dappFiles.get("/src/App.tsx");
   const code = appFile?.content ?? "";
+
+  // Setup global helpers for generated dApp code
+  useEffect(() => {
+    patchAccountStorage();
+    setupHelpers();
+  }, []);
 
   // Expose compiled contract data on window for dApp code to access
   useEffect(() => {

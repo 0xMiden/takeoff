@@ -151,31 +151,19 @@ ${contractList}
 
 ## How to Read Contract Storage
 
-1. Get the client: \`const { client, runExclusive } = useMiden();\`
-2. Get the contract account ID from \`window.__TAKEOFF_CONTRACTS["contract-name"]?.accountId\`
-3. Convert to AccountId: \`AccountId.fromHex(hexId)\`
-4. Get the account: \`await client.getAccount(accountId)\` (import if needed with \`client.importAccountById\`)
-5. Get slot names: \`account.storage().getSlotNames()\`
-6. Read values using \`getMapItem\` (DEFAULT — most contract storage uses StorageMap):
+1. Get the account via \`client.getAccount(accountId)\`
+2. Get slot names: \`account.storage().getSlotNames()\`
+3. Read a value using the global helper (handles both StorageMap and Value slots automatically):
    \`\`\`
-   const key = Word.newFromFelts([new Felt(0n), new Felt(0n), new Felt(0n), new Felt(1n)]);
-   const value = account.storage().getMapItem(slotName, key);
+   const value = window.__midenReadStorage(account.storage(), slotName);
    \`\`\`
-   Only use \`getItem(slotName)\` if the contract explicitly uses \`Value\` type (rare).
-   **getItem on a StorageMap returns a useless hash — always use getMapItem for maps.**
-7. Convert Word hex to number (LITTLE-ENDIAN):
+4. Convert to number using the global helper (handles little-endian byte order):
    \`\`\`
-   const hex = value.toHex();
-   const num = Number(BigInt("0x" + hex.slice(2, 18).match(/../g).reverse().join("")));
+   const num = window.__midenWordToNum(value);
    \`\`\`
-   This takes the first Felt (16 hex chars after "0x") and reverses byte order.
 
-## How to Create a Word Key
-
-\`Word.newFromFelts([new Felt(0n), new Felt(0n), new Felt(0n), new Felt(1n)])\`
-
-The Felt constructor takes \`bigint\`: \`new Felt(42n)\`, \`new Felt(0n)\`.
-You MUST import both Felt and Word from "@miden-sdk/miden-sdk".
+These two helpers (\`__midenReadStorage\` and \`__midenWordToNum\`) are provided by the playground runtime.
+ALWAYS use them instead of calling \`getItem\`/\`getMapItem\`/\`toHex\` directly.
 
 ## How to Execute Contract Methods
 
@@ -189,14 +177,13 @@ Keys are Rust method names with underscores (e.g., \`increment_count\`, \`get_co
 5. Submit: \`await client.submitNewTransaction(account.id(), txRequest)\`
 6. Sync: \`await sync()\` then re-read storage
 
-## MANDATORY Import — Copy This Exactly
+## Required Imports
 
 \`\`\`tsx
-import { AccountId, Felt, Word, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
+import { AccountId, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
 \`\`\`
 
-You MUST include Felt and Word. Without them you cannot create storage keys or read values.
-If you omit Felt or Word, the app WILL crash.
+Storage reading is handled by \`window.__midenReadStorage\` and \`window.__midenWordToNum\` — no need to import Felt/Word for that.
 
 ## Rules
 
