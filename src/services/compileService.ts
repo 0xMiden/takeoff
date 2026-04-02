@@ -5,6 +5,7 @@ export interface CompileCallbacks {
     output: string;
     packageBase64?: string;
     masmSource?: string;
+    txScripts?: Record<string, string>;
   }) => void;
   onError: (error: string) => void;
 }

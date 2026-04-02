@@ -11,6 +11,7 @@ interface CompileResult {
   output: string;
   packageBase64?: string;
   masmSource?: string;
+  txScripts?: Record<string, string>; // method name → base64 .masp bytes
 }
 
 export async function* compileContract(
@@ -109,13 +110,92 @@ export async function* compileContract(
 
     const maspBytes = await readFile(maspPath);
 
-    // Also read the .masm file if it exists (same name, different extension)
-    const masmPath = maspPath.replace(/\.masp$/, ".masm");
-    let masmSource: string | undefined;
-    try {
-      masmSource = await readFile(masmPath, "utf-8") as unknown as string;
-    } catch {
-      // .masm file may not exist
+    // Extract method names and component package from source files
+    const libRs = files["src/lib.rs"] ?? "";
+    const cargoToml = files["Cargo.toml"] ?? "";
+    const methods = [...libRs.matchAll(/pub\s+fn\s+(\w+)/g)].map(m => m[1]);
+    const pkgMatch = cargoToml.match(/\[package\.metadata\.component\][\s\S]*?package\s*=\s*"([^"]+)"/);
+    const componentPackage = pkgMatch?.[1] ?? "";
+
+    // Auto-generate and compile tx-scripts for each public method
+    const txScripts: Record<string, string> = {};
+    if (componentPackage && methods.length > 0) {
+      yield { type: "output", text: "\nGenerating transaction scripts..." };
+
+      for (const method of methods) {
+        try {
+          const txDir = join(tmpDir, `__tx_${method}`);
+          await mkdir(join(txDir, "src"), { recursive: true });
+
+          // Cargo.toml for the tx-script
+          await writeFile(join(txDir, "Cargo.toml"), `[package]
+name = "tx-${method}"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+miden = "0.10.0"
+
+[package.metadata.component]
+package = "miden:tx-${method}"
+
+[package.metadata.miden]
+project-kind = "transaction-script"
+
+[package.metadata.miden.dependencies]
+"${componentPackage}" = { path = "${tmpDir}" }
+
+[package.metadata.component.target.dependencies]
+"${componentPackage}" = { path = "${tmpDir}/target/generated-wit/" }
+`, "utf-8");
+
+          // lib.rs for the tx-script
+          await writeFile(join(txDir, "src", "lib.rs"), `#![no_std]
+#![feature(alloc_error_handler)]
+use miden::*;
+use crate::bindings::Account;
+
+#[tx_script]
+fn run(_arg: Word, account: &mut Account) {
+    account.${method}();
+}
+`, "utf-8");
+
+          // Compile the tx-script
+          const txExitCode = await new Promise<number>((resolve, reject) => {
+            const proc = spawn("docker", [
+              "run", "--rm",
+              "--memory=2g", "--cpus=2",
+              `-v=${tmpDir}:${tmpDir}`,
+              `-v=${txDir}:/tx-project`,
+              `-w=/tx-project`,
+              DOCKER_IMAGE,
+              "cargo", "miden", "build", "--release",
+            ]);
+            const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX script compile timeout")); }, COMPILE_TIMEOUT_MS);
+            proc.stdout.on("data", () => {});
+            proc.stderr.on("data", () => {});
+            proc.on("close", (code) => { clearTimeout(timeout); resolve(code ?? 1); });
+            proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
+          });
+
+          if (txExitCode === 0) {
+            const txMaspPath = await findMasp(txDir);
+            if (txMaspPath) {
+              const txMaspBytes = await readFile(txMaspPath);
+              txScripts[method] = txMaspBytes.toString("base64");
+              yield { type: "output", text: `  ✓ TX script for ${method}` };
+            }
+          } else {
+            yield { type: "output", text: `  ✗ TX script for ${method} failed` };
+          }
+        } catch (e) {
+          yield { type: "output", text: `  ✗ TX script for ${method}: ${e}` };
+        }
+      }
     }
 
     yield {
@@ -124,7 +204,7 @@ export async function* compileContract(
         success: true,
         output: fullOutput,
         packageBase64: maspBytes.toString("base64"),
-        masmSource,
+        txScripts: Object.keys(txScripts).length > 0 ? txScripts : undefined,
       },
     };
   } finally {

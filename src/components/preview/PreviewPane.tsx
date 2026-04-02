@@ -24,6 +24,7 @@ export function PreviewPane() {
         methods: string[];
         accountId?: string;
         masmSource: string;
+        txScripts: Record<string, Uint8Array>;
       }
     > = {};
     for (const [name, entry] of contracts) {
@@ -34,6 +35,7 @@ export function PreviewPane() {
           methods: entry.methods ?? [],
           accountId: entry.accountId,
           masmSource: entry.masmSource ?? "",
+          txScripts: entry.txScripts ?? {},
         };
       }
     }

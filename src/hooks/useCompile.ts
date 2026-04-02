@@ -85,13 +85,17 @@ export function useCompile() {
               setPackageBytes(contractName, bytes);
             }
 
-            // Store MASM source if available (for TX script compilation in dApp)
-            if (result.masmSource) {
+            // Store tx scripts if available
+            if (result.txScripts) {
+              const txScriptBytes: Record<string, Uint8Array> = {};
+              for (const [method, base64] of Object.entries(result.txScripts)) {
+                txScriptBytes[method] = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+              }
               usePlaygroundStore.setState((state) => {
                 const contracts = new Map(state.contracts);
                 const entry = contracts.get(contractName);
                 if (entry) {
-                  contracts.set(contractName, { ...entry, masmSource: result.masmSource });
+                  contracts.set(contractName, { ...entry, txScripts: txScriptBytes });
                 }
                 return { contracts };
               });

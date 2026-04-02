@@ -215,7 +215,7 @@ Compiled contract data is available at \`window.__TAKEOFF_CONTRACTS["contract-na
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { AccountId, Package, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
+import { AccountId, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
 const CONTRACT_NAME = "my-contract"; // matches the name in the Contracts panel
@@ -273,26 +273,15 @@ export default function App() {
         const account = await getContractAccount();
         if (!account) throw new Error("Contract account not found");
 
-        // Get the compiled contract data from the playground
+        // Get the pre-compiled tx script for the method
         const contractData = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
-        if (!contractData?.masmSource) throw new Error("Compiled MASM not found. Recompile the contract.");
+        const methodName = "increment_count"; // exact Rust method name (underscores)
+        const txScriptBytes = contractData?.txScripts?.[methodName];
+        if (!txScriptBytes) throw new Error(\`No TX script for \${methodName}. Recompile the contract.\`);
 
-        // Load the compiled library from .masp and link it
-        const pkg = Package.deserialize(contractData.packageBytes);
-        const library = pkg.asLibrary();
-
-        const builder = client.createCodeBuilder();
-        builder.linkStaticLibrary(library);
-
-        // Call the procedure by its full WIT path (from .masp)
-        // Pattern: "package:name/interface@version"::"method-name"
-        // Method names use hyphens: increment_count → increment-count
-        const compPkg = contractData.componentPackage; // e.g. "miden:counter-contract"
-        const iface = compPkg.split(":").pop(); // e.g. "counter-contract"
-        const method = "increment-count"; // WIT convention: hyphens
-        const txScript = builder.compileTxScript(
-          \`begin\\n  exec.::"\${compPkg}/\${iface}@0.1.0"::"\${method}"\\nend\`
-        );
+        // Load the pre-compiled transaction script from .masp
+        const txScriptPkg = Package.deserialize(txScriptBytes);
+        const txScript = TransactionScript.fromPackage(txScriptPkg);
 
         const txRequest = new TransactionRequestBuilder()
           .withCustomScript(txScript)
@@ -323,10 +312,10 @@ export default function App() {
 - Use \`useMiden().client\` — it IS the real WebClient
 - ALWAYS wrap client calls in \`runExclusive\`
 - \`window.__TAKEOFF_CONTRACTS["name"]\` has: \`.packageBytes\`, \`.componentPackage\`, \`.methods\`, \`.accountId\`, \`.masmSource\`
-- \`Package.deserialize(data.packageBytes).asLibrary()\` gets the compiled Library
-- \`builder.linkStaticLibrary(library)\` copies procedures into the TX script scope
-- TX script: \`begin\\n  exec.::"pkg:name/iface@version"::"method-name"\\nend\`
-- Build path: \`const pkg = data.componentPackage; const iface = pkg.split(":").pop();\`
+- \`data.txScripts["method_name"]\` has the pre-compiled tx script .masp Uint8Array for each method
+- \`Package.deserialize(txScriptBytes)\` → \`TransactionScript.fromPackage(pkg)\` creates the script
+- \`TransactionRequestBuilder().withCustomScript(txScript).build()\` creates the transaction request
+- \`client.submitNewTransaction(accountId, txRequest)\` submits it
 - Method names convert underscores to hyphens: \`increment_count\` → \`increment-count\`
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 

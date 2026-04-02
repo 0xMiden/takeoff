@@ -9,6 +9,7 @@ interface Window {
       methods: string[];
       accountId?: string;
       masmSource: string;
+      txScripts: Record<string, Uint8Array>;
     }
   >;
 }

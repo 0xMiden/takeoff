@@ -26,6 +26,7 @@ export interface ContractEntry {
   componentPackage?: string; // e.g. "miden:counter-contract" from Cargo.toml
   methods?: string[]; // e.g. ["get_count", "increment_count"] from lib.rs
   masmSource?: string; // compiled MASM source from cargo-miden
+  txScripts?: Record<string, Uint8Array>; // method name → compiled tx script .masp bytes
   error?: string;
 }
 
