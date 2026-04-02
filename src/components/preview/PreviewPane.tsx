@@ -6,6 +6,19 @@ import { PreviewErrorBoundary } from "./ErrorBoundary";
 import { ErrorOverlay } from "./ErrorOverlay";
 import { PreviewToolbar } from "./PreviewToolbar";
 
+// Wrap txScripts in a Proxy that does fuzzy matching
+// So txScripts["increment"] resolves to txScripts["increment_count"]
+function fuzzyTxScripts(scripts: Record<string, Uint8Array>): Record<string, Uint8Array> {
+  return new Proxy(scripts, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop];
+      // Fuzzy: find a key that contains the requested name
+      const match = Object.keys(target).find((k) => k.includes(prop) || prop.includes(k));
+      return match ? target[match] : undefined;
+    },
+  });
+}
+
 export function PreviewPane() {
   const dappFiles = usePlaygroundStore((s) => s.dappFiles);
   const contracts = usePlaygroundStore((s) => s.contracts);
@@ -35,7 +48,7 @@ export function PreviewPane() {
           methods: entry.methods ?? [],
           accountId: entry.accountId,
           masmSource: entry.masmSource ?? "",
-          txScripts: entry.txScripts ?? {},
+          txScripts: fuzzyTxScripts(entry.txScripts ?? {}),
         };
       }
     }
