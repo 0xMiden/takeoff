@@ -19,10 +19,11 @@ export async function compileComponent(
     lexerReady = true;
   }
 
-  // Step 1: Sucrase transpile TSX→JS (preserving import statements)
+  // Step 1: Sucrase transpile TSX→JS using classic runtime (React.createElement)
+  // This avoids injecting "react/jsx-runtime" imports that our MODULE_MAP can't resolve
   const transpiled = transform(code, {
     transforms: ["typescript", "jsx"],
-    jsxRuntime: "automatic",
+    jsxRuntime: "classic",
     production: true,
   }).code;
 
@@ -64,18 +65,18 @@ export async function compileComponent(
       strippedCode.slice(0, imp.ss) + bindings + strippedCode.slice(imp.se);
   }
 
-  // Step 4: Handle JSX runtime imports that Sucrase adds
-  // Sucrase with jsxRuntime: "automatic" adds: import { jsx, jsxs, Fragment } from "react/jsx-runtime"
-  // We need to provide these
-  const jsxRuntimeCode = `
-const { createElement, Fragment } = __React;
-const jsx = (type, props, key) => __React.createElement(type, { ...props, key });
-const jsxs = jsx;
-`;
+  // Step 4: Strip export statements — new Function() doesn't support them
+  strippedCode = strippedCode
+    .replace(/export\s+default\s+function\s+/g, "function ")
+    .replace(/export\s+default\s+/g, "const __default = ")
+    .replace(/export\s+function\s+/g, "function ")
+    .replace(/export\s+const\s+/g, "const ")
+    .replace(/export\s+\{[^}]*\};?/g, "");
 
   // Step 5: Wrap in a function and execute
+  // Classic JSX mode outputs React.createElement() calls, so React must be in scope.
   const wrappedCode = `
-${jsxRuntimeCode}
+const React = __React;
 ${strippedCode}
 
 return typeof App !== 'undefined' ? App :
