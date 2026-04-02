@@ -213,7 +213,7 @@ const { client, runExclusive } = useMiden();
 const readCounter = async () => {
   if (!client) return 0;
   return await runExclusive(async () => {
-    const accountId = AccountId.fromBech32(CONTRACT_ID);
+    const accountId = AccountId.fromHex(CONTRACT_ID);
     const account = await client.getAccount(accountId);
     if (!account) return 0;
 
@@ -239,7 +239,7 @@ const { client, runExclusive } = useMiden();
 const incrementCounter = async () => {
   if (!client) return;
   await runExclusive(async () => {
-    const accountId = AccountId.fromBech32(CONTRACT_ID);
+    const accountId = AccountId.fromHex(CONTRACT_ID);
 
     // 1. Create a CodeBuilder to compile the transaction script
     const builder = client.createCodeBuilder();
@@ -298,6 +298,5 @@ ${contractList}
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
 - Import @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder) as STATIC imports at the top. Do NOT use dynamic import() — it doesn't work in the preview.
 - Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
-- Account IDs starting with "mtst1" or "miden1" are bech32 — use \`AccountId.fromBech32(id)\`. Only use \`fromHex\` for raw 32-char hex strings.
-- Some IDs may have a "_noteTag" suffix (e.g., "mtst1abc..._xyz"). Strip the underscore and everything after before passing to \`fromBech32\`: \`id.split("_")[0]\``;
+- Deployed contract IDs from the contract list are hex strings (e.g., "0x1234abcd..."). Use \`AccountId.fromHex(id)\` to convert them.`;
 }

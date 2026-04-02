@@ -64,9 +64,8 @@ export function useDeploy() {
           // 6. Store locally
           await client.newAccount(account, false);
 
-          // bech32id() may return "accountId_noteTag" format — strip the note tag
-          const fullId = account.bech32id();
-          const accountId = fullId.includes("_") ? fullId.split("_")[0] : fullId;
+          // toString() returns canonical hex representation
+          const accountId = account.id().toString();
           return { accountId, seed };
         });
 
