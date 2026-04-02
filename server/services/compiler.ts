@@ -43,8 +43,8 @@ export async function* compileContract(
       return;
     }
 
-    // Run cargo-miden build in Docker
-    let fullOutput = "";
+    // Run cargo-miden build in Docker, streaming output line by line
+    const outputLines: string[] = [];
     const exitCode = await new Promise<number>((resolve, reject) => {
       const proc = spawn("docker", [
         "run",
@@ -63,12 +63,15 @@ export async function* compileContract(
 
       const timeout = setTimeout(() => {
         proc.kill("SIGKILL");
-        reject(new Error("Compilation timed out (120s)"));
+        reject(new Error("Compilation timed out"));
       }, COMPILE_TIMEOUT_MS);
 
+      let buffer = "";
       const onData = (data: Buffer) => {
-        const text = data.toString();
-        fullOutput += text;
+        buffer += data.toString();
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        outputLines.push(...lines);
       };
 
       proc.stdout.on("data", onData);
@@ -76,6 +79,7 @@ export async function* compileContract(
 
       proc.on("close", (code) => {
         clearTimeout(timeout);
+        if (buffer) outputLines.push(buffer);
         resolve(code ?? 1);
       });
 
@@ -85,8 +89,16 @@ export async function* compileContract(
       });
     });
 
-    // Stream the full output (we collected it to also parse for errors)
-    yield { type: "output", text: fullOutput };
+    // Stream output — show "Compiling" lines as progress
+    const fullOutput = outputLines.join("\n");
+    for (const line of outputLines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("Compiling") || trimmed.startsWith("Finished") ||
+          trimmed.startsWith("Creating") || trimmed.startsWith("error") ||
+          trimmed.startsWith("warning")) {
+        yield { type: "output", text: trimmed };
+      }
+    }
 
     if (exitCode !== 0) {
       yield {
