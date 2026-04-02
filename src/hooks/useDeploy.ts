@@ -46,7 +46,7 @@ export function useDeploy() {
 
           // 4. Extract library from package and create component with all-types support
           const library = pkg.asLibrary();
-          const component = AccountComponent.fromLibrary(library, slots)
+          const component = AccountComponent.fromLibrary(library, slots as unknown as never[])
             .withSupportsAllTypes();
 
           // 5. Build account

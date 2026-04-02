@@ -30,6 +30,24 @@ export function CodeEditor() {
     monaco.editor.defineTheme(THEME_NAME, TAKEOFF_THEME);
     monaco.editor.setTheme(THEME_NAME);
 
+    // Configure TypeScript to understand JSX and not flag it as errors
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+      target: monaco.languages.typescript.ScriptTarget.ESNext,
+      module: monaco.languages.typescript.ModuleKind.ESNext,
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      allowNonTsExtensions: true,
+      allowJs: true,
+      esModuleInterop: true,
+      noEmit: true,
+    });
+
+    // Suppress all diagnostics for now — the preview eval is the real validator
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+    });
+
     editor.updateOptions({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: 13,
