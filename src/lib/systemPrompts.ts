@@ -200,57 +200,78 @@ export default function App() {
 }
 \`\`\`
 
-## Calling Custom Contract Methods
+## Calling Custom Contract Methods (EXACT API — use these precisely)
 
-To call a method on a deployed contract (e.g., increment_count on a counter), use \`useMidenClient()\` directly:
-
-### Reading contract storage
+### Reading contract storage value
 \`\`\`tsx
-const client = useMidenClient();
+// Inside an async function or useEffect
+const { client, runExclusive } = useMiden();
 
-// Get account and read storage
-const account = await client.getAccount(contractId);
-const storageSlotName = "miden::component::miden_counter_contract::count_map";
-const word = account?.storage().getItem(storageSlotName);
-// word is a Word (4 Felts). First felt is usually the value.
-// Convert hex to number:
-const value = word ? Number(BigInt("0x" + word.toHex().slice(-16).match(/../g).reverse().join(""))) : 0;
+const readCounter = async () => {
+  if (!client) return 0;
+  return await runExclusive(async () => {
+    // getAccount takes an AccountId object, create from string:
+    const { AccountId } = await import("@miden-sdk/miden-sdk");
+    const accountId = AccountId.fromHex(CONTRACT_ID); // or AccountId.fromBech32(...)
+    const account = await client.getAccount(accountId);
+    if (!account) return 0;
+
+    // Read from a StorageMap slot — slot name follows pattern:
+    // "miden::component::<package_name_with_underscores>::<field_name>"
+    // For counter-contract with field count_map:
+    const slotName = "miden::component::miden_counter_contract::count_map";
+
+    // For StorageMap, use getMapItem with a Word key:
+    const { Word } = await import("@miden-sdk/miden-sdk");
+    const key = Word.fromHex("0000000000000000000000000000000000000000000000000000000000000001");
+    const value = account.storage().getMapItem(slotName, key);
+    if (!value) return 0;
+
+    // Convert Word to number: first element is the counter value
+    const hex = value.toHex();
+    return Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
+  });
+};
 \`\`\`
 
-### Executing a transaction script (calling a contract method)
+### Executing a transaction (calling increment_count)
 \`\`\`tsx
-const client = useMidenClient();
-const { runExclusive } = useMiden();
+const { client, runExclusive } = useMiden();
 
-await runExclusive(async () => {
-  // 1. Build the MASM transaction script
-  const builder = client.newCodeBuilder();
-  const contractCode = "..."; // The contract's source MASM (from compilation)
-  const accountCodeLib = builder.buildLibrary(
-    "external_contract::counter_contract",
-    contractCode,
-  );
-  builder.linkDynamicLibrary(accountCodeLib);
+const incrementCounter = async () => {
+  if (!client) return;
+  await runExclusive(async () => {
+    const { AccountId, TransactionRequestBuilder } = await import("@miden-sdk/miden-sdk");
+    const accountId = AccountId.fromHex(CONTRACT_ID);
 
-  const txScriptMasm = \`
-    use external_contract::counter_contract
-    begin
-      call.counter_contract::increment_count
-    end
-  \`;
-  const txScript = builder.compileTxScript(txScriptMasm);
+    // 1. Create a CodeBuilder to compile the transaction script
+    const builder = client.createCodeBuilder();
 
-  // 2. Build and submit the transaction
-  const txRequest = new TransactionRequestBuilder()
-    .withCustomScript(txScript)
-    .build();
+    // 2. Get the contract's MASM code and build a library from it
+    const account = await client.getAccount(accountId);
+    const contractCode = account?.code()?.toSourceCode() ?? "";
+    const lib = builder.buildLibrary("external_contract::counter_contract", contractCode);
+    builder.linkDynamicLibrary(lib);
 
-  await client.submitNewTransaction(contractAccountId, txRequest);
-  await client.syncState();
-});
+    // 3. Compile the transaction script that calls increment_count
+    const txScript = builder.compileTxScript(
+      "use external_contract::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
+    );
+
+    // 4. Build and submit the transaction
+    const txRequest = new TransactionRequestBuilder()
+      .withCustomScript(txScript)
+      .build();
+
+    await client.submitNewTransaction(accountId, txRequest);
+  });
+
+  // 5. Sync to get updated state
+  await sync();
+};
 \`\`\`
 
-**Note**: For the playground preview, since the MASM compilation APIs may not all be available, it's acceptable to show a simulated version that demonstrates the UI flow. But ALWAYS write real hook calls for reading data (useAccount, useMiden, etc.) — only simulate the transaction execution if the full API isn't available.
+### IMPORTANT: These use dynamic import() for @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder). This is because those types are WASM and need to be imported at runtime, not at module scope in the eval preview.
 
 ## Deployed contracts
 ${contractList}
@@ -268,5 +289,7 @@ ${contractList}
 - The preview runs inside an eval — keep code simple, avoid complex patterns
 - For colors use dark theme values: background "#0a0c14", text "#e2e8f0", accent "#4ade80"
 - Transaction stages: idle → executing → proving → submitting → complete
-- NEVER comment out real code and replace with setTimeout simulations. Write the real API calls. If something won't work in the preview, add a comment explaining why but still write the real code.`;
+- NEVER comment out real code and replace with setTimeout simulations. Write the real API calls.
+- NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
+- Use dynamic import() for @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder) — these are WASM types that must be imported at runtime.`;
 }
