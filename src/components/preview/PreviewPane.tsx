@@ -8,10 +8,25 @@ import { PreviewToolbar } from "./PreviewToolbar";
 
 export function PreviewPane() {
   const dappFiles = usePlaygroundStore((s) => s.dappFiles);
+  const contracts = usePlaygroundStore((s) => s.contracts);
   const appendConsole = usePlaygroundStore((s) => s.appendConsole);
 
   const appFile = dappFiles.get("/src/App.tsx");
   const code = appFile?.content ?? "";
+
+  // Expose compiled contract .masp bytes on window for dApp code to access
+  useEffect(() => {
+    const contractData: Record<string, Uint8Array> = {};
+    for (const [name, entry] of contracts) {
+      if (entry.packageBytes) {
+        contractData[name] = entry.packageBytes;
+      }
+    }
+    (window as unknown as Record<string, unknown>).__TAKEOFF_CONTRACTS = contractData;
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__TAKEOFF_CONTRACTS;
+    };
+  }, [contracts]);
 
   // Debounce 500ms to prevent cascading hook remounts
   const debouncedCode = useDebouncedValue(code, 500);

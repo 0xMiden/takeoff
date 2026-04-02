@@ -202,79 +202,122 @@ export default function App() {
 
 ## Calling Custom Contract Methods
 
-Use \`useMiden().client\` to access the WebClient directly. Wrap all client calls in \`runExclusive\`.
+Use \`useMiden().client\` to access the WebClient. Wrap all calls in \`runExclusive\`.
 
-NOTE: For Rust-compiled contracts, calling contract methods via transaction scripts requires the
-compiled contract library. This is complex and not fully supported in the playground preview yet.
-For now, focus on READING contract storage (which works) and show a placeholder for writes.
+The compiled contract's .masp bytes are available at \`window.__TAKEOFF_CONTRACTS["my-contract"]\`.
+Use these to link the contract library for transaction scripts.
 
-### Reading contract storage (WORKS):
+### Complete example — read storage + execute increment:
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { AccountId } from "@miden-sdk/miden-sdk";
+import { AccountId, Package, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
+const CONTRACT_NAME = "my-contract"; // matches the name in the Contracts panel
 
 export default function App() {
   const { isReady, signerAccountId, client, runExclusive } = useMiden();
-  const { syncHeight } = useSyncState();
+  const { syncHeight, sync } = useSyncState();
   const [counterValue, setCounterValue] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
+  // Helper: ensure contract account is imported
+  const getContractAccount = useCallback(async () => {
+    const accountId = AccountId.fromHex(CONTRACT_ID);
+    let account = await client.getAccount(accountId);
+    if (!account) {
+      await client.importAccountById(accountId);
+      await client.syncState();
+      account = await client.getAccount(accountId);
+    }
+    return account;
+  }, [client]);
+
+  // Read counter value from storage
   const fetchCounter = useCallback(async () => {
     if (!client) return;
     try {
       await runExclusive(async () => {
-        const accountId = AccountId.fromHex(CONTRACT_ID);
-        let account = await client.getAccount(accountId);
-        if (!account) {
-          await client.importAccountById(accountId);
-          await client.syncState();
-          account = await client.getAccount(accountId);
-        }
+        const account = await getContractAccount();
         if (!account) return;
 
-        // List all storage slot names to find the right one
         const slotNames = account.storage().getSlotNames();
-        console.log("Storage slots:", slotNames);
-
-        // Try reading from the counter storage
-        // Slot name pattern: "miden::component::<package_with_underscores>::<field>"
-        for (const name of slotNames) {
-          const value = account.storage().getItem(name);
+        // Read first storage slot value
+        if (slotNames.length > 0) {
+          const value = account.storage().getItem(slotNames[0]);
           if (value) {
-            console.log("Slot", name, "=", value.toHex());
+            const hex = value.toHex();
+            const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
+            setCounterValue(num);
           }
-        }
-
-        // Read specific slot (adjust name based on console output above)
-        const value = account.storage().getItem(slotNames[0]);
-        if (value) {
-          const hex = value.toHex();
-          const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
-          setCounterValue(num);
         }
       });
     } catch (err) {
       console.error("Failed to read counter:", err);
     }
-  }, [client, runExclusive]);
+  }, [client, runExclusive, getContractAccount]);
+
+  // Increment counter via transaction script
+  const increment = useCallback(async () => {
+    if (!client) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      await runExclusive(async () => {
+        const account = await getContractAccount();
+        if (!account) throw new Error("Contract account not found");
+
+        // Get the compiled .masp library from the playground
+        const maspBytes = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
+        if (!maspBytes) throw new Error("Compiled contract not found. Compile first.");
+
+        // Deserialize package and get the library
+        const pkg = Package.deserialize(maspBytes);
+        const library = pkg.asLibrary();
+
+        // Link the library and compile the transaction script
+        const builder = client.createCodeBuilder();
+        builder.linkDynamicLibrary(library);
+
+        const txScript = builder.compileTxScript(
+          "use miden::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
+        );
+
+        const txRequest = new TransactionRequestBuilder()
+          .withCustomScript(txScript)
+          .build();
+
+        await client.submitNewTransaction(account.id(), txRequest);
+      });
+
+      await sync();
+      await fetchCounter();
+    } catch (err) {
+      setError(err.message || "Transaction failed");
+      console.error("Increment failed:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client, runExclusive, getContractAccount, sync, fetchCounter]);
 
   useEffect(() => {
     if (isReady) fetchCounter();
   }, [isReady, syncHeight, fetchCounter]);
 
-  // ... render UI
+  // ... render UI with counterValue, increment button, isLoading, error
 }
 \`\`\`
 
 ### KEY POINTS:
 - Use \`useMiden().client\` — it IS the real WebClient
 - ALWAYS wrap client calls in \`runExclusive\`
-- Use \`client.importAccountById()\` to import contract account if not found locally
-- Use \`account.storage().getSlotNames()\` to discover storage slot names
-- Use \`account.storage().getItem(slotName)\` to read Value slots
-- Use \`account.storage().getMapItem(slotName, key)\` to read StorageMap entries
+- \`window.__TAKEOFF_CONTRACTS["contract-name"]\` has the compiled .masp Uint8Array bytes
+- \`Package.deserialize(bytes).asLibrary()\` gets the compiled Library (no MASM source needed)
+- \`builder.linkDynamicLibrary(library)\` links the compiled library for use in TX scripts
+- The module path in the TX script \`use\` statement must match the contract's component package name from Cargo.toml (e.g., \`package = "miden:counter-contract"\` → \`use miden::counter_contract\`)
+- Procedure names match the Rust method names: \`increment_count\`, \`get_count\`, etc.
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 
 ## Deployed contracts
