@@ -17,12 +17,23 @@ export function usePersistence() {
             m.isStreaming ? { ...m, isStreaming: false } : m
           );
 
+        // Clean up stale compiling/deploying statuses from interrupted sessions
+        const cleanContracts = new Map(saved.contracts);
+        for (const [name, entry] of cleanContracts) {
+          if (entry.compileStatus === "compiling") {
+            cleanContracts.set(name, { ...entry, compileStatus: "idle" });
+          }
+          if (entry.deployStatus === "deploying") {
+            cleanContracts.set(name, { ...entry, deployStatus: "idle" });
+          }
+        }
+
         usePlaygroundStore.setState({
           contractFiles: saved.contractFiles,
           dappFiles: saved.dappFiles,
           contractChat: cleanChat(saved.contractChat),
           dappChat: cleanChat(saved.dappChat),
-          contracts: saved.contracts,
+          contracts: cleanContracts,
           mode: saved.mode,
           streamingMessageId: null,
         });

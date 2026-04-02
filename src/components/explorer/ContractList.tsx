@@ -2,7 +2,7 @@ import { usePlaygroundStore } from "@/store/usePlaygroundStore";
 import { useCompile } from "@/hooks/useCompile";
 import { useDeploy } from "@/hooks/useDeploy";
 import { cn } from "@/lib/cn";
-import { Box, Copy, Check, Play, Loader2, Upload } from "lucide-react";
+import { Box, Copy, Check, Play, Loader2, Upload, X } from "lucide-react";
 import { useState } from "react";
 import type { ContractEntry } from "@/store/types";
 
@@ -78,6 +78,19 @@ function ContractItem({
 }) {
   const [copied, setCopied] = useState(false);
   const { deploy, isReady } = useDeploy();
+  const setCompileStatus = usePlaygroundStore((s) => s.setCompileStatus);
+  const setDeployStatus = usePlaygroundStore((s) => s.setDeployStatus);
+
+  const handleReset = () => {
+    if (contract.compileStatus === "compiling") {
+      setCompileStatus(contract.name, "idle");
+    }
+    if (contract.deployStatus === "deploying") {
+      setDeployStatus(contract.name, "idle");
+    }
+  };
+
+  const isStuck = contract.compileStatus === "compiling" || contract.deployStatus === "deploying";
 
   const handleCopy = () => {
     if (contract.accountId) {
@@ -136,9 +149,17 @@ function ContractItem({
         <span className="text-xs font-medium truncate flex-1">
           {contract.name}
         </span>
-        {(contract.compileStatus === "compiling" ||
-          contract.deployStatus === "deploying") && (
-          <Loader2 className="h-3 w-3 animate-spin text-yellow-400" />
+        {isStuck && (
+          <>
+            <Loader2 className="h-3 w-3 animate-spin text-yellow-400" />
+            <button
+              onClick={handleReset}
+              title="Cancel"
+              className="text-muted-foreground/50 hover:text-red-400 transition-colors"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
         )}
       </div>
 
