@@ -1,10 +1,12 @@
 import * as MidenReact from "@miden-sdk/react";
+import * as MidenSdk from "@miden-sdk/miden-sdk";
 import * as React from "react";
 import { transform } from "sucrase";
 import { init, parse } from "es-module-lexer";
 
 const MODULE_MAP: Record<string, unknown> = {
   "@miden-sdk/react": MidenReact,
+  "@miden-sdk/miden-sdk": MidenSdk,
   react: React,
 };
 
