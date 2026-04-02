@@ -247,10 +247,13 @@ fn run(_arg: Word, account: &mut Account) {
         }
       }
 
-      // Collect results
+      // Collect results — find the specific tx-script .masp by name
+      // The .masp files are in /cache/target/contract/miden/release/ (shared target)
+      // Naming: package "tx-increment-count" → "tx_increment_count.masp"
       for (const method of methods) {
         if (txFullOutput.includes(`TX_OK:${method}`)) {
-          const txMaspPath = await findMasp(join(tmpDir, `__tx_${method}`));
+          const txFileName = `tx_${method.replace(/-/g, "_")}`;
+          const txMaspPath = await findMaspByName(join(tmpDir, `__tx_${method}`), txFileName);
           if (txMaspPath) {
             const txMaspBytes = await readFile(txMaspPath);
             txScripts[method] = txMaspBytes.toString("base64");
@@ -287,6 +290,27 @@ async function findMasp(dir: string): Promise<string | null> {
           const found = await walk(full);
           if (found) return found;
         } else if (entry.name.endsWith(".masp")) {
+          return full;
+        }
+      }
+    } catch { /* skip */ }
+    return null;
+  }
+  return walk(dir);
+}
+
+async function findMaspByName(dir: string, name: string): Promise<string | null> {
+  const { readdir } = await import("fs/promises");
+  const target = `${name}.masp`;
+  async function walk(d: string): Promise<string | null> {
+    try {
+      const entries = await readdir(d, { withFileTypes: true });
+      for (const entry of entries) {
+        const full = join(d, entry.name);
+        if (entry.isDirectory()) {
+          const found = await walk(full);
+          if (found) return found;
+        } else if (entry.name === target) {
           return full;
         }
       }
