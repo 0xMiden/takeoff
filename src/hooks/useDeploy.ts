@@ -71,12 +71,25 @@ export function useDeploy() {
 
           for (const [, fieldName, fieldType] of storageFields) {
             const slotName = `${slotPrefix}::${fieldName}`;
-            if (fieldType === "StorageMap") {
-              slots.push(StorageSlot.map(slotName, new StorageMapClass()));
-            } else {
-              slots.push(StorageSlot.emptyValue(slotName));
+            // Try both slot types to see which one the contract expects
+            try {
+              if (fieldType === "StorageMap") {
+                slots.push(StorageSlot.map(slotName, new StorageMapClass()));
+                appendConsole("info", `  Storage slot (map): ${slotName}`);
+              } else {
+                slots.push(StorageSlot.emptyValue(slotName));
+                appendConsole("info", `  Storage slot (value): ${slotName}`);
+              }
+            } catch (e) {
+              appendConsole("warn", `  Failed to create slot ${slotName}: ${e}`);
+              // Fallback: try the other type
+              try {
+                slots.push(StorageSlot.emptyValue(slotName));
+                appendConsole("info", `  Storage slot (fallback value): ${slotName}`);
+              } catch {
+                appendConsole("error", `  Cannot create slot ${slotName}`);
+              }
             }
-            appendConsole("info", `  Storage slot: ${slotName} (${fieldType})`);
           }
 
           // 4. Create component from package with storage slots
