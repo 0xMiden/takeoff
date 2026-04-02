@@ -207,27 +207,22 @@ export default function App() {
 // Inside an async function or useEffect
 const { client, runExclusive } = useMiden();
 
+// At the top of the file:
+// import { AccountId, Word } from "@miden-sdk/miden-sdk";
+
 const readCounter = async () => {
   if (!client) return 0;
   return await runExclusive(async () => {
-    // getAccount takes an AccountId object, create from string:
-    const { AccountId } = await import("@miden-sdk/miden-sdk");
-    const accountId = AccountId.fromHex(CONTRACT_ID); // or AccountId.fromBech32(...)
+    const accountId = AccountId.fromHex(CONTRACT_ID);
     const account = await client.getAccount(accountId);
     if (!account) return 0;
 
-    // Read from a StorageMap slot — slot name follows pattern:
-    // "miden::component::<package_name_with_underscores>::<field_name>"
-    // For counter-contract with field count_map:
+    // Storage slot name pattern: "miden::component::<package_with_underscores>::<field>"
     const slotName = "miden::component::miden_counter_contract::count_map";
-
-    // For StorageMap, use getMapItem with a Word key:
-    const { Word } = await import("@miden-sdk/miden-sdk");
     const key = Word.fromHex("0000000000000000000000000000000000000000000000000000000000000001");
     const value = account.storage().getMapItem(slotName, key);
     if (!value) return 0;
 
-    // Convert Word to number: first element is the counter value
     const hex = value.toHex();
     return Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
   });
@@ -238,10 +233,12 @@ const readCounter = async () => {
 \`\`\`tsx
 const { client, runExclusive } = useMiden();
 
+// At the top of the file:
+// import { AccountId, Word, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
+
 const incrementCounter = async () => {
   if (!client) return;
   await runExclusive(async () => {
-    const { AccountId, TransactionRequestBuilder } = await import("@miden-sdk/miden-sdk");
     const accountId = AccountId.fromHex(CONTRACT_ID);
 
     // 1. Create a CodeBuilder to compile the transaction script
@@ -275,7 +272,11 @@ const incrementCounter = async () => {
 };
 \`\`\`
 
-### IMPORTANT: These use dynamic import() for @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder). This is because those types are WASM and need to be imported at runtime, not at module scope in the eval preview.
+### IMPORTANT: Import AccountId, Word, TransactionRequestBuilder etc. as a normal static import at the top of the file:
+\`\`\`tsx
+import { AccountId, Word, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
+\`\`\`
+Do NOT use dynamic import() — it doesn't work in the preview. Static imports are resolved by the preview runtime.
 
 ## Deployed contracts
 ${contractList}
@@ -295,5 +296,6 @@ ${contractList}
 - Transaction stages: idle → executing → proving → submitting → complete
 - NEVER comment out real code and replace with setTimeout simulations. Write the real API calls.
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
-- Use dynamic import() for @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder) — these are WASM types that must be imported at runtime.`;
+- Import @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder) as STATIC imports at the top. Do NOT use dynamic import() — it doesn't work in the preview.
+- Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"`;
 }
