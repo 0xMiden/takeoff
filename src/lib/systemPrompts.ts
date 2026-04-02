@@ -200,19 +200,19 @@ export default function App() {
 }
 \`\`\`
 
-## Calling Custom Contract Methods (EXACT working pattern from Miden docs)
+## Calling Custom Contract Methods
 
-The react-sdk's client proxy may not expose all WebClient methods. For contract interaction,
-create a dedicated WebClient instance. This is the PROVEN pattern from the official tutorial.
+Use \`useMiden().client\` to access the WebClient directly. It IS the real WebClient instance and has
+all methods: \`getAccount\`, \`createCodeBuilder\`, \`submitNewTransaction\`, \`importAccountById\`, etc.
+Wrap all client calls in \`runExclusive\` to prevent concurrent WASM access.
 
 ### Complete working example for a counter contract dApp:
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { WebClient, AccountId, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
+import { AccountId, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
-const RPC_URL = "https://rpc.testnet.miden.io";
 
 // The MASM source code of the counter contract
 const COUNTER_CONTRACT_CODE = \`
@@ -237,73 +237,71 @@ const COUNTER_CONTRACT_CODE = \`
 \`;
 
 export default function App() {
-  const { isReady, signerAccountId } = useMiden();
-  const { syncHeight } = useSyncState();
+  const { isReady, signerAccountId, client, runExclusive } = useMiden();
+  const { syncHeight, sync } = useSyncState();
   const [counterValue, setCounterValue] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Helper: create a fresh WebClient for direct contract interaction
-  const getClient = useCallback(async () => {
-    return await WebClient.createClient(RPC_URL);
-  }, []);
-
   // Read counter value
   const fetchCounter = useCallback(async () => {
+    if (!client) return;
     try {
-      const client = await getClient();
-      // Import the contract account if not yet known
-      const accountId = AccountId.fromHex(CONTRACT_ID);
+      await runExclusive(async () => {
+        const accountId = AccountId.fromHex(CONTRACT_ID);
 
-      let account = await client.getAccount(accountId);
-      if (!account) {
-        await client.importAccountById(accountId);
-        await client.syncState();
-        account = await client.getAccount(accountId);
-      }
-      if (!account) return;
+        let account = await client.getAccount(accountId);
+        if (!account) {
+          await client.importAccountById(accountId);
+          await client.syncState();
+          account = await client.getAccount(accountId);
+        }
+        if (!account) return;
 
-      const slotName = "miden::component::miden_counter_contract::count_map";
-      const value = account.storage().getItem(slotName);
-      if (value) {
-        const hex = value.toHex();
-        const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
-        setCounterValue(num);
-      }
+        const slotName = "miden::component::miden_counter_contract::count_map";
+        const value = account.storage().getItem(slotName);
+        if (value) {
+          const hex = value.toHex();
+          const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
+          setCounterValue(num);
+        }
+      });
     } catch (err) {
       console.error("Failed to read counter:", err);
     }
-  }, [getClient]);
+  }, [client, runExclusive]);
 
   // Increment counter
   const increment = useCallback(async () => {
+    if (!client) return;
     setIsLoading(true);
     setError(null);
     try {
-      const client = await getClient();
-      const accountId = AccountId.fromHex(CONTRACT_ID);
+      await runExclusive(async () => {
+        const accountId = AccountId.fromHex(CONTRACT_ID);
 
-      let account = await client.getAccount(accountId);
-      if (!account) {
-        await client.importAccountById(accountId);
-        await client.syncState();
-        account = await client.getAccount(accountId);
-      }
+        let account = await client.getAccount(accountId);
+        if (!account) {
+          await client.importAccountById(accountId);
+          await client.syncState();
+          account = await client.getAccount(accountId);
+        }
 
-      const builder = client.createCodeBuilder();
-      const lib = builder.buildLibrary("external_contract::counter_contract", COUNTER_CONTRACT_CODE);
-      builder.linkDynamicLibrary(lib);
+        const builder = client.createCodeBuilder();
+        const lib = builder.buildLibrary("external_contract::counter_contract", COUNTER_CONTRACT_CODE);
+        builder.linkDynamicLibrary(lib);
 
-      const txScript = builder.compileTxScript(
-        "use external_contract::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
-      );
+        const txScript = builder.compileTxScript(
+          "use external_contract::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
+        );
 
-      const txRequest = new TransactionRequestBuilder()
-        .withCustomScript(txScript)
-        .build();
+        const txRequest = new TransactionRequestBuilder()
+          .withCustomScript(txScript)
+          .build();
 
-      await client.submitNewTransaction(account.id(), txRequest);
-      await client.syncState();
+        await client.submitNewTransaction(account.id(), txRequest);
+      });
+      await sync();
       await fetchCounter();
     } catch (err) {
       setError(err.message || "Transaction failed");
@@ -311,24 +309,23 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [getClient, fetchCounter]);
+  }, [client, runExclusive, sync, fetchCounter]);
 
   useEffect(() => {
     if (isReady) fetchCounter();
   }, [isReady, syncHeight, fetchCounter]);
 
-  // ... render UI here
+  // ... render UI with counterValue, increment, isLoading, error
 }
-
-// All @miden-sdk/miden-sdk types are imported statically at the top of the file.
 \`\`\`
 
 ### KEY POINTS:
-- Create a FRESH \`WebClient.createClient()\` for contract interactions — do NOT use the react-sdk's client proxy
+- Use \`useMiden().client\` — it IS the real WebClient, not a proxy
+- ALWAYS wrap client calls in \`runExclusive\` to prevent concurrent WASM access
 - Use \`client.importAccountById()\` to import the contract account if not found locally
 - The MASM contract code must be provided as a string to \`buildLibrary()\`
 - The storage slot constant name matches the pattern \`miden::component::<package>::<field>\`
-- ALL imports must be STATIC at the top of the file. Do NOT use dynamic import() — it does not work in the preview.
+- ALL imports must be STATIC at the top of the file. Do NOT use dynamic import().
 
 ## Deployed contracts
 ${contractList}
@@ -336,7 +333,7 @@ ${contractList}
 ## CRITICAL Rules
 - Write JSX (not React.createElement) — JSX IS supported in the preview
 - Write components as single default-exported functions
-- Only import from "react" and "@miden-sdk/react"
+- Only import from "react", "@miden-sdk/react", and "@miden-sdk/miden-sdk"
 - No other imports, no dynamic imports, no require
 - Use INLINE STYLES only (style={{ ... }}). Do NOT use className with Tailwind — Tailwind is not available in the preview.
 - All apps are already wrapped in MidenProvider — do NOT add one
@@ -348,8 +345,8 @@ ${contractList}
 - Transaction stages: idle → executing → proving → submitting → complete
 - NEVER comment out real code and replace with setTimeout simulations. Write the real API calls.
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
-- Import WebClient, AccountId, TransactionRequestBuilder etc. from "@miden-sdk/miden-sdk" as STATIC imports at the top. NEVER use dynamic import().
+- Import AccountId, TransactionRequestBuilder etc. from "@miden-sdk/miden-sdk" as STATIC imports
 - Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
 - Deployed contract IDs from the contract list are hex strings (e.g., "0x1234abcd..."). Use \`AccountId.fromHex(id)\` to convert them.
-- For contract interaction, create a FRESH WebClient via \`WebClient.createClient("https://rpc.testnet.miden.io")\` — do NOT use the react-sdk's client`;
+- For contract interaction, use \`useMiden().client\` — it is the real WebClient. Wrap calls in \`runExclusive\`.`;
 }
