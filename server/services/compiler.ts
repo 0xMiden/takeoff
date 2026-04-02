@@ -7,9 +7,9 @@ const COMPILE_TIMEOUT_MS = 180_000;
 const TX_SCRIPTS_TIMEOUT_MS = 360_000;
 const DOCKER_IMAGE = "docker-compiler";
 
-// Persistent Docker volume for cargo registry + target cache
-// First run is slow, subsequent runs reuse compiled deps
-const CARGO_VOLUME = "miden-takeoff-cargo-cache";
+// Persistent Docker volumes for caching
+const CARGO_REGISTRY_VOLUME = "miden-takeoff-cargo-registry";
+const CARGO_TARGET_VOLUME = "miden-takeoff-cargo-target";
 
 interface CompileResult {
   success: boolean;
@@ -104,14 +104,16 @@ export async function* compileContract(
       return;
     }
 
-    // Ensure the cargo cache volume exists
-    try {
-      await new Promise<void>((resolve) => {
-        const proc = spawn("docker", ["volume", "create", CARGO_VOLUME]);
-        proc.on("close", () => resolve());
-        proc.on("error", () => resolve());
-      });
-    } catch { /* ignore */ }
+    // Ensure cache volumes exist
+    for (const vol of [CARGO_REGISTRY_VOLUME, CARGO_TARGET_VOLUME]) {
+      try {
+        await new Promise<void>((resolve) => {
+          const proc = spawn("docker", ["volume", "create", vol]);
+          proc.on("close", () => resolve());
+          proc.on("error", () => resolve());
+        });
+      } catch { /* ignore */ }
+    }
 
     // Run cargo-miden build with persistent cargo cache
     let fullOutput = "";
@@ -119,9 +121,12 @@ export async function* compileContract(
       "run", "--rm",
       "--memory=2g", "--cpus=2",
       `-v=${tmpDir}:/project`,
-      `-v=${CARGO_VOLUME}:/usr/local/cargo/registry`,
+      `-v=${CARGO_REGISTRY_VOLUME}:/usr/local/cargo/registry`,
+      `-v=${CARGO_TARGET_VOLUME}:/cache/target`,
+      `-e`, `CARGO_TARGET_DIR=/cache/target/contract`,
       DOCKER_IMAGE,
-      "cargo", "miden", "build", "--release", "--emit", "masp,masm",
+      "bash", "-c",
+      "CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release --emit masp,masm && mkdir -p /project/target && cp -r /cache/target/contract/miden /project/target/miden 2>/dev/null && cp -r /cache/target/contract/generated-wit /project/target/generated-wit 2>/dev/null; true",
     ], COMPILE_TIMEOUT_MS);
 
     let exitCode = 1;
@@ -213,14 +218,15 @@ fn run(_arg: Word, account: &mut Account) {
       // Build all tx-scripts in one Docker run, sharing the cargo cache volume
       const total = methods.length;
       const buildScript = methods.map((m, i) =>
-        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
+        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && CARGO_TARGET_DIR=/cache/target/tx_${m} cargo miden build --release 2>&1 && mkdir -p /project/__tx_${m}/target && cp -r /cache/target/tx_${m}/miden /project/__tx_${m}/target/miden 2>/dev/null && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
       ).join(" ; ");
 
       const txRunner = runDocker([
         "run", "--rm",
         "--memory=2g", "--cpus=2",
         `-v=${tmpDir}:/project`,
-        `-v=${CARGO_VOLUME}:/usr/local/cargo/registry`,
+        `-v=${CARGO_REGISTRY_VOLUME}:/usr/local/cargo/registry`,
+        `-v=${CARGO_TARGET_VOLUME}:/cache/target`,
         DOCKER_IMAGE,
         "bash", "-c", buildScript,
       ], TX_SCRIPTS_TIMEOUT_MS);
