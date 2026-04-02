@@ -41,8 +41,43 @@ export function useDeploy() {
           // 2. Deserialize compiled package
           const pkg = Package.deserialize(maspBytes);
 
-          // 3. Construct StorageSlotArray
+          // 3. Construct StorageSlotArray with named slots from the contract
+          //    The .masp package expects slots matching the #[storage] fields
+          //    Slot name pattern: "miden::component::<package_underscored>::<field>"
+          const {
+            StorageSlot,
+            StorageMap: StorageMapClass,
+          } = await import("@miden-sdk/miden-sdk");
+
           const slots = new StorageSlotArray();
+
+          // Parse storage fields from the contract's lib.rs
+          // Look for #[storage(...)] field_name: StorageMap or Value patterns
+          const contractFiles = usePlaygroundStore.getState().contractFiles;
+          const libRs = contractFiles.get("/src/lib.rs")?.content ?? "";
+          const cargoToml = contractFiles.get("/Cargo.toml")?.content ?? "";
+
+          // Get component package name and convert to slot name prefix
+          const pkgMatch = cargoToml.match(
+            /\[package\.metadata\.component\][\s\S]*?package\s*=\s*"([^"]+)"/
+          );
+          const compPkg = pkgMatch?.[1] ?? ""; // e.g. "miden:counter-contract"
+          const slotPrefix = `miden::component::${compPkg.replace(/[:-]/g, "_")}`;
+
+          // Find storage fields
+          const storageFields = [
+            ...libRs.matchAll(/#\[storage[^\]]*\]\s*(\w+)\s*:\s*(\w+)/g),
+          ];
+
+          for (const [, fieldName, fieldType] of storageFields) {
+            const slotName = `${slotPrefix}::${fieldName}`;
+            if (fieldType === "StorageMap") {
+              slots.push(StorageSlot.map(slotName, new StorageMapClass()));
+            } else {
+              slots.push(StorageSlot.emptyValue(slotName));
+            }
+            appendConsole("info", `  Storage slot: ${slotName} (${fieldType})`);
+          }
 
           // 4. Extract library from package and create component with all-types support
           const library = pkg.asLibrary();
