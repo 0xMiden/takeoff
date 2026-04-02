@@ -85,6 +85,18 @@ export function useCompile() {
               setPackageBytes(contractName, bytes);
             }
 
+            // Store MASM source if available (for TX script compilation in dApp)
+            if (result.masmSource) {
+              usePlaygroundStore.setState((state) => {
+                const contracts = new Map(state.contracts);
+                const entry = contracts.get(contractName);
+                if (entry) {
+                  contracts.set(contractName, { ...entry, masmSource: result.masmSource });
+                }
+                return { contracts };
+              });
+            }
+
             // Clear diagnostics on success
             if (monacoInstance) {
               for (const model of monacoInstance.editor.getModels()) {

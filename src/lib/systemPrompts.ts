@@ -209,6 +209,7 @@ Compiled contract data is available at \`window.__TAKEOFF_CONTRACTS["contract-na
 - \`.componentPackage\` — e.g. "miden:counter-contract" (from Cargo.toml)
 - \`.methods\` — e.g. ["get_count", "increment_count"] (from lib.rs)
 - \`.accountId\` — the deployed hex account ID
+- \`.masmSource\` — the compiled MASM source code (for buildLibrary)
 
 ### Complete example — read storage + execute increment:
 \`\`\`tsx
@@ -274,28 +275,17 @@ export default function App() {
 
         // Get the compiled contract data from the playground
         const contractData = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
-        if (!contractData) throw new Error("Compiled contract not found. Compile first.");
+        if (!contractData?.masmSource) throw new Error("Compiled MASM not found. Recompile the contract.");
 
-        // Deserialize package and get the library
-        const pkg = Package.deserialize(contractData.packageBytes);
-        const library = pkg.asLibrary();
-
-        // Link the library and compile the transaction script
+        // Use buildLibrary with MASM source (proven tutorial approach)
         const builder = client.createCodeBuilder();
-        builder.linkDynamicLibrary(library);
+        const lib = builder.buildLibrary("external_contract::my_contract", contractData.masmSource);
+        builder.linkDynamicLibrary(lib);
 
-        // Build the procedure call path from metadata:
-        // WIT convention: "package/interface@version"::"method-name"
-        // The component package (e.g., "miden:counter-contract") determines the path.
-        // The interface name matches the last part of the package.
-        // Methods use hyphens: increment_count → increment-count
-        const pkg_name = contractData.componentPackage; // e.g. "miden:counter-contract"
-        const iface = pkg_name.split(":").pop(); // e.g. "counter-contract"
-        const method = "increment-count"; // Use hyphens, not underscores
-        const procPath = \`"\${pkg_name}/\${iface}@0.1.0"::"\${method}"\`;
-
+        // Method names: Rust underscores → WIT hyphens: increment_count → increment-count
+        const method = "increment-count";
         const txScript = builder.compileTxScript(
-          \`begin\\n  call.::\${procPath}\\nend\`
+          \`use external_contract::my_contract\\nbegin\\n  call.my_contract::\${method}\\nend\`
         );
 
         const txRequest = new TransactionRequestBuilder()
@@ -326,15 +316,10 @@ export default function App() {
 ### KEY POINTS:
 - Use \`useMiden().client\` — it IS the real WebClient
 - ALWAYS wrap client calls in \`runExclusive\`
-- \`window.__TAKEOFF_CONTRACTS["name"]\` has: \`.packageBytes\`, \`.componentPackage\`, \`.methods\`, \`.accountId\`
-- \`Package.deserialize(data.packageBytes).asLibrary()\` gets the compiled Library
-- \`builder.linkDynamicLibrary(library)\` links it for TX scripts
-- Build procedure path from metadata:
-  \`const pkg = data.componentPackage; // "miden:counter-contract"\`
-  \`const iface = pkg.split(":").pop(); // "counter-contract"\`
-  \`const method = "increment-count"; // hyphens, not underscores!\`
-  \`const path = \\\`"\${pkg}/\${iface}@0.1.0"::"\${method}"\\\`;\`
-- TX script: \`begin\\n  call.::\${path}\\nend\` — no \`use\` statement needed
+- \`window.__TAKEOFF_CONTRACTS["name"]\` has: \`.packageBytes\`, \`.componentPackage\`, \`.methods\`, \`.accountId\`, \`.masmSource\`
+- Use \`builder.buildLibrary("external_contract::my_contract", data.masmSource)\` to build the library from MASM
+- Then \`builder.linkDynamicLibrary(lib)\` to link it
+- TX script: \`use external_contract::my_contract\\nbegin\\n  call.my_contract::method-name\\nend\`
 - Method names convert underscores to hyphens: \`increment_count\` → \`increment-count\`
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 

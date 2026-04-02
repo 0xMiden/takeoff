@@ -23,6 +23,7 @@ export function PreviewPane() {
         componentPackage: string;
         methods: string[];
         accountId?: string;
+        masmSource: string;
       }
     > = {};
     for (const [name, entry] of contracts) {
@@ -32,6 +33,7 @@ export function PreviewPane() {
           componentPackage: entry.componentPackage ?? "",
           methods: entry.methods ?? [],
           accountId: entry.accountId,
+          masmSource: entry.masmSource ?? "",
         };
       }
     }

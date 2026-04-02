@@ -4,6 +4,7 @@ export interface CompileCallbacks {
     success: boolean;
     output: string;
     packageBase64?: string;
+    masmSource?: string;
   }) => void;
   onError: (error: string) => void;
 }

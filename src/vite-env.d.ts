@@ -8,6 +8,7 @@ interface Window {
       componentPackage: string;
       methods: string[];
       accountId?: string;
+      masmSource: string;
     }
   >;
 }

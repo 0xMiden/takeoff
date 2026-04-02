@@ -10,6 +10,7 @@ interface CompileResult {
   success: boolean;
   output: string;
   packageBase64?: string;
+  masmSource?: string;
 }
 
 export async function* compileContract(
@@ -54,6 +55,9 @@ export async function* compileContract(
         "miden",
         "build",
         "--release",
+        "--",
+        "--emit",
+        "masp,masm",
       ]);
 
       const timeout = setTimeout(() => {
@@ -105,12 +109,23 @@ export async function* compileContract(
     }
 
     const maspBytes = await readFile(maspPath);
+
+    // Also read the .masm file if it exists (same name, different extension)
+    const masmPath = maspPath.replace(/\.masp$/, ".masm");
+    let masmSource: string | undefined;
+    try {
+      masmSource = await readFile(masmPath, "utf-8") as unknown as string;
+    } catch {
+      // .masm file may not exist
+    }
+
     yield {
       type: "result",
       result: {
         success: true,
         output: fullOutput,
         packageBase64: maspBytes.toString("base64"),
+        masmSource,
       },
     };
   } finally {
