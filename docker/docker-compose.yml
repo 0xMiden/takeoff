@@ -1,0 +1,8 @@
+services:
+  compiler:
+    build:
+      context: .
+      dockerfile: Dockerfile.compiler
+    # This service is used on-demand by the compile endpoint,
+    # not as a long-running container. Build with:
+    #   docker compose build compiler

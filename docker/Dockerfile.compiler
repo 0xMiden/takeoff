@@ -1,0 +1,29 @@
+FROM rust:1.92-slim
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+# Nightly pinned to a date with rustc >= 1.92 and no hashbrown breakage
+# Use the exact same toolchain as the Miden compiler repo
+RUN rustup toolchain install nightly-2025-12-10 \
+    && rustup default nightly-2025-12-10 \
+    && rustup target add wasm32-unknown-unknown \
+    && rustup target add wasm32-wasip1 \
+    && rustup target add wasm32-wasip2 \
+    && rustup component add rust-src
+
+# Install cargo-miden
+RUN cargo install cargo-miden
+
+# Pre-warm: create a dummy project, fetch all miden-sdk deps, and compile
+# This populates the cargo registry cache and build cache inside the image
+WORKDIR /warm
+RUN cargo init --lib dummy \
+    && cd dummy \
+    && printf '[package]\nname = "dummy"\nversion = "0.1.0"\nedition = "2024"\n\n[dependencies]\nmiden = "0.11.0"\n\n[lib]\ncrate-type = ["cdylib"]\n\n[package.metadata.miden]\nproject-kind = "account"\n' > Cargo.toml \
+    && printf '#![no_std]\n#![feature(alloc_error_handler)]\nuse miden::*;\n' > src/lib.rs \
+    && cargo fetch \
+    && cargo miden build --release || true \
+    && cd / && rm -rf /warm
+
+WORKDIR /project

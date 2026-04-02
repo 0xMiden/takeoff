@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Base canvas */
+    --background: 228 12% 4%;
+    --foreground: 0 0% 95%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 0 0% 2%;
+    --muted: 228 8% 15%;
+    --muted-foreground: 228 8% 55%;
+    --destructive: 0 84% 60%;
+
+    /* Glass panels */
+    --glass: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.06);
+    --glass-hover: rgba(255, 255, 255, 0.06);
+    --glass-blur: 20px;
+
+    /* Elevated glass */
+    --glass-elevated: rgba(255, 255, 255, 0.05);
+    --glass-elevated-blur: 30px;
+
+    /* Accent glows */
+    --primary-glow: 0 0 20px rgba(74, 222, 128, 0.15);
+    --primary-glow-strong: 0 0 30px rgba(74, 222, 128, 0.25);
+
+    /* Status */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --error: 0 84% 60%;
+
+    /* Subtle text */
+    --subtle: 228 8% 35%;
+
+    /* Radius */
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * {
+    border-color: var(--glass-border);
+  }
+
+  body {
+    background: radial-gradient(
+        ellipse at 20% 50%,
+        rgba(74, 222, 128, 0.03) 0%,
+        transparent 50%
+      ),
+      radial-gradient(
+        ellipse at 80% 20%,
+        rgba(59, 130, 246, 0.02) 0%,
+        transparent 50%
+      ),
+      hsl(228, 12%, 4%);
+    color: hsl(var(--foreground));
+    font-family: "Inter", system-ui, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    margin: 0;
+  }
+
+  #root {
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    background: var(--glass);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+  }
+
+  .glass-panel-elevated {
+    background: var(--glass-elevated);
+    backdrop-filter: blur(var(--glass-elevated-blur));
+    -webkit-backdrop-filter: blur(var(--glass-elevated-blur));
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .glow-green {
+    box-shadow: var(--primary-glow);
+  }
+
+  .glow-green-strong {
+    box-shadow: var(--primary-glow-strong);
+  }
+}
