@@ -108,10 +108,29 @@ export function useDeploy() {
           const account = buildResult.account;
           const seed = buildResult.seed;
 
+          // Debug: inspect the account's storage before saving
+          const storage = account.storage();
+          const slotNames = storage.getSlotNames();
+          appendConsole("info", `  Account storage slots after build: [${slotNames.join(", ")}]`);
+          for (const name of slotNames) {
+            const val = storage.getItem(name);
+            appendConsole("info", `    ${name} = ${val ? val.toHex() : "null"}`);
+          }
+          appendConsole("info", `  Account code commitment: ${account.code().commitment().toHex()}`);
+          appendConsole("info", `  Account storage commitment: ${storage.commitment().toHex()}`);
+
           // 6. Store locally
           await client.newAccount(account, false);
 
-          // toString() returns canonical hex representation
+          // Verify: read it back
+          const readBack = await client.getAccount(account.id());
+          if (readBack) {
+            const rbSlots = readBack.storage().getSlotNames();
+            appendConsole("info", `  Read-back storage slots: [${rbSlots.join(", ")}]`);
+          } else {
+            appendConsole("warn", `  Could not read back account after saving`);
+          }
+
           const accountId = account.id().toString();
           return { accountId, seed };
         });
