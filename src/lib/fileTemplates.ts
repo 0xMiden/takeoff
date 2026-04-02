@@ -14,14 +14,15 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-miden = "0.11.0"
+miden = "0.10.0"
 
 [package.metadata.component]
 package = "miden:my-contract"
 
+
 [package.metadata.miden]
 project-kind = "account"
-supported-types = ["RegularAccountUpdatableCode"]
+supported-types = ["RegularAccountUpdatableCode", "RegularAccountImmutableCode"]
 `,
   },
   {

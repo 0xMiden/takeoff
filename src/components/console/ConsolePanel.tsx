@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { usePlaygroundStore } from "@/store/usePlaygroundStore";
 import { cn } from "@/lib/cn";
 import { Trash2 } from "lucide-react";
@@ -21,6 +22,14 @@ const levelDots: Record<string, string> = {
 export function ConsolePanel() {
   const lines = usePlaygroundStore((s) => s.consoleLines);
   const clearConsole = usePlaygroundStore((s) => s.clearConsole);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [lines]);
 
   return (
     <div className="glass-panel h-full w-full flex flex-col overflow-hidden border-t">
@@ -38,7 +47,7 @@ export function ConsolePanel() {
       </div>
 
       {/* Lines */}
-      <div className="flex-1 overflow-auto px-3 py-1 font-mono text-[11px] leading-5">
+      <div ref={scrollRef} className="flex-1 overflow-auto px-3 py-1 font-mono text-[11px] leading-5">
         {lines.length === 0 ? (
           <div className="text-muted-foreground/40 italic py-2">
             No output yet
