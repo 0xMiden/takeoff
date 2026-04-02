@@ -20,7 +20,7 @@ export async function* streamChat(
   req: ChatRequest
 ): AsyncGenerator<string, void, unknown> {
   const stream = getClient().messages.stream({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 4096,
     system: req.systemPrompt,
     messages: req.messages,
