@@ -7,22 +7,87 @@ const COMPILE_TIMEOUT_MS = 180_000;
 const TX_SCRIPTS_TIMEOUT_MS = 360_000;
 const DOCKER_IMAGE = "docker-compiler";
 
+// Persistent Docker volume for cargo registry + target cache
+// First run is slow, subsequent runs reuse compiled deps
+const CARGO_VOLUME = "miden-takeoff-cargo-cache";
+
 interface CompileResult {
   success: boolean;
   output: string;
   packageBase64?: string;
   masmSource?: string;
-  txScripts?: Record<string, string>; // method name → base64 .masp bytes
+  txScripts?: Record<string, string>;
+}
+
+type CompileEvent =
+  | { type: "output"; text: string }
+  | { type: "result"; result: CompileResult };
+
+// Helper: run a Docker command and yield output lines in real time
+async function* runDocker(
+  args: string[],
+  timeoutMs: number
+): AsyncGenerator<string, number, unknown> {
+  const proc = spawn("docker", args);
+  let buffer = "";
+  let exitCode = 1;
+
+  const lines: string[] = [];
+  let resolve: (() => void) | null = null;
+  let done = false;
+
+  const timeout = setTimeout(() => {
+    proc.kill("SIGKILL");
+    done = true;
+    if (resolve) resolve();
+  }, timeoutMs);
+
+  proc.stdout.on("data", (d: Buffer) => {
+    buffer += d.toString();
+    const parts = buffer.split("\n");
+    buffer = parts.pop() ?? "";
+    lines.push(...parts);
+    if (resolve) resolve();
+  });
+
+  proc.stderr.on("data", (d: Buffer) => {
+    buffer += d.toString();
+    const parts = buffer.split("\n");
+    buffer = parts.pop() ?? "";
+    lines.push(...parts);
+    if (resolve) resolve();
+  });
+
+  proc.on("close", (code) => {
+    clearTimeout(timeout);
+    exitCode = code ?? 1;
+    if (buffer) lines.push(buffer);
+    done = true;
+    if (resolve) resolve();
+  });
+
+  proc.on("error", () => {
+    clearTimeout(timeout);
+    done = true;
+    if (resolve) resolve();
+  });
+
+  // Yield lines as they arrive
+  while (!done || lines.length > 0) {
+    if (lines.length > 0) {
+      yield lines.shift()!;
+    } else if (!done) {
+      await new Promise<void>((r) => { resolve = r; });
+      resolve = null;
+    }
+  }
+
+  return exitCode;
 }
 
 export async function* compileContract(
   files: Record<string, string>
-): AsyncGenerator<
-  { type: "output"; text: string } | { type: "result"; result: CompileResult },
-  void,
-  unknown
-> {
-  // Create isolated temp directory
+): AsyncGenerator<CompileEvent, void, unknown> {
   const tmpDir = await mkdtemp(join(tmpdir(), "miden-compile-"));
 
   try {
@@ -34,108 +99,77 @@ export async function* compileContract(
       await writeFile(fullPath, content, "utf-8");
     }
 
-    // Ensure Cargo.toml exists
     if (!files["Cargo.toml"]) {
-      yield {
-        type: "result",
-        result: { success: false, output: "Missing Cargo.toml" },
-      };
+      yield { type: "result", result: { success: false, output: "Missing Cargo.toml" } };
       return;
     }
 
-    // Run cargo-miden build in Docker, streaming output line by line
-    const outputLines: string[] = [];
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      const proc = spawn("docker", [
-        "run",
-        "--rm",
-        "--memory=2g",
-        "--cpus=2",
-        `-v=${tmpDir}:/project`,
-        DOCKER_IMAGE,
-        "cargo",
-        "miden",
-        "build",
-        "--release",
-        "--emit",
-        "masp,masm",
-      ]);
-
-      const timeout = setTimeout(() => {
-        proc.kill("SIGKILL");
-        reject(new Error("Compilation timed out"));
-      }, COMPILE_TIMEOUT_MS);
-
-      let buffer = "";
-      const onData = (data: Buffer) => {
-        buffer += data.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        outputLines.push(...lines);
-      };
-
-      proc.stdout.on("data", onData);
-      proc.stderr.on("data", onData);
-
-      proc.on("close", (code) => {
-        clearTimeout(timeout);
-        if (buffer) outputLines.push(buffer);
-        resolve(code ?? 1);
+    // Ensure the cargo cache volume exists
+    try {
+      await new Promise<void>((resolve) => {
+        const proc = spawn("docker", ["volume", "create", CARGO_VOLUME]);
+        proc.on("close", () => resolve());
+        proc.on("error", () => resolve());
       });
+    } catch { /* ignore */ }
 
-      proc.on("error", (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    // Run cargo-miden build with persistent cargo cache
+    let fullOutput = "";
+    const runner = runDocker([
+      "run", "--rm",
+      "--memory=2g", "--cpus=2",
+      `-v=${tmpDir}:/project`,
+      `-v=${CARGO_VOLUME}:/usr/local/cargo/registry`,
+      DOCKER_IMAGE,
+      "cargo", "miden", "build", "--release", "--emit", "masp,masm",
+    ], COMPILE_TIMEOUT_MS);
 
-    // Stream output — show "Compiling" lines as progress
-    const fullOutput = outputLines.join("\n");
-    for (const line of outputLines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("Compiling") || trimmed.startsWith("Finished") ||
-          trimmed.startsWith("Creating") || trimmed.startsWith("error") ||
-          trimmed.startsWith("warning")) {
-        yield { type: "output", text: trimmed };
+    let exitCode = 1;
+    while (true) {
+      const { value, done } = await runner.next();
+      if (done) {
+        exitCode = value as number;
+        break;
+      }
+      const line = (value as string).trim();
+      fullOutput += line + "\n";
+      if (line.startsWith("Compiling") || line.startsWith("Finished") ||
+          line.startsWith("Creating") || line.startsWith("error") ||
+          line.startsWith("warning") || line.startsWith("Locking") ||
+          line.startsWith("Updating")) {
+        yield { type: "output", text: line };
       }
     }
 
     if (exitCode !== 0) {
-      yield {
-        type: "result",
-        result: { success: false, output: fullOutput },
-      };
+      // Also yield errors that weren't caught by the filter
+      yield { type: "output", text: fullOutput };
+      yield { type: "result", result: { success: false, output: fullOutput } };
       return;
     }
 
-    // Find the .masp file in target/
+    // Find the .masp file
     const maspPath = await findMasp(tmpDir);
     if (!maspPath) {
-      yield {
-        type: "result",
-        result: {
-          success: false,
-          output: fullOutput + "\nError: No .masp file found after build",
-        },
-      };
+      yield { type: "result", result: { success: false, output: fullOutput + "\nNo .masp file found" } };
       return;
     }
 
     const maspBytes = await readFile(maspPath);
 
-    // Extract method names and component package from source files
+    // Extract method names and component package
     const libRs = files["src/lib.rs"] ?? "";
     const cargoToml = files["Cargo.toml"] ?? "";
     const methods = [...libRs.matchAll(/pub\s+fn\s+(\w+)/g)].map(m => m[1]);
     const pkgMatch = cargoToml.match(/\[package\.metadata\.component\][\s\S]*?package\s*=\s*"([^"]+)"/);
     const componentPackage = pkgMatch?.[1] ?? "";
 
-    // Auto-generate and compile tx-scripts for each public method in ONE Docker run
+    // Auto-generate and compile tx-scripts
     const txScripts: Record<string, string> = {};
     if (componentPackage && methods.length > 0) {
-      yield { type: "output", text: "\nGenerating transaction scripts..." };
+      yield { type: "output", text: "Generating transaction scripts..." };
 
-      // Create all tx-script projects on the host
+      // Create all tx-script projects
       for (const method of methods) {
         const txDir = join(tmpDir, `__tx_${method}`);
         await mkdir(join(txDir, "src"), { recursive: true });
@@ -176,61 +210,48 @@ fn run(_arg: Word, account: &mut Account) {
 `, "utf-8");
       }
 
-      // Build a bash script that compiles all tx-scripts sequentially
-      // Build script with progress markers
+      // Build all tx-scripts in one Docker run, sharing the cargo cache volume
       const total = methods.length;
       const buildScript = methods.map((m, i) =>
         `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
       ).join(" ; ");
 
-      try {
-        // Run tx-script compilation and collect output line by line
-        const txOutputLines: string[] = [];
-        await new Promise<void>((resolve, reject) => {
-          const proc = spawn("docker", [
-            "run", "--rm",
-            "--memory=2g", "--cpus=2",
-            `-v=${tmpDir}:/project`,
-            DOCKER_IMAGE,
-            "bash", "-c", buildScript,
-          ]);
-          let buffer = "";
-          const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX scripts compile timeout")); }, TX_SCRIPTS_TIMEOUT_MS);
-          const onData = (d: Buffer) => {
-            buffer += d.toString();
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            txOutputLines.push(...lines);
-          };
-          proc.stdout.on("data", onData);
-          proc.stderr.on("data", onData);
-          proc.on("close", () => { clearTimeout(timeout); resolve(); });
-          proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
-        });
+      const txRunner = runDocker([
+        "run", "--rm",
+        "--memory=2g", "--cpus=2",
+        `-v=${tmpDir}:/project`,
+        `-v=${CARGO_VOLUME}:/usr/local/cargo/registry`,
+        DOCKER_IMAGE,
+        "bash", "-c", buildScript,
+      ], TX_SCRIPTS_TIMEOUT_MS);
 
-        // Stream progress lines to the client
-        const fullTxOutput = txOutputLines.join("\n");
-        for (const line of txOutputLines) {
-          if (line.includes("TX_PROGRESS:")) {
-            yield { type: "output", text: line.replace("TX_PROGRESS:", "  ") };
-          }
+      let txFullOutput = "";
+      while (true) {
+        const { value, done } = await txRunner.next();
+        if (done) break;
+        const line = (value as string).trim();
+        txFullOutput += line + "\n";
+        // Stream progress and compilation lines
+        if (line.includes("TX_PROGRESS:") || line.startsWith("Compiling") ||
+            line.startsWith("Finished") || line.startsWith("Creating") ||
+            line.includes("TX_OK:") || line.includes("TX_FAIL:")) {
+          const display = line.replace("TX_PROGRESS:", "  ");
+          yield { type: "output", text: display };
         }
+      }
 
-        // Collect results
-        for (const method of methods) {
-          if (fullTxOutput.includes(`TX_OK:${method}`)) {
-            const txMaspPath = await findMasp(join(tmpDir, `__tx_${method}`));
-            if (txMaspPath) {
-              const txMaspBytes = await readFile(txMaspPath);
-              txScripts[method] = txMaspBytes.toString("base64");
-              yield { type: "output", text: `  ✓ TX script for ${method}` };
-            }
-          } else {
-            yield { type: "output", text: `  ✗ TX script for ${method} failed` };
+      // Collect results
+      for (const method of methods) {
+        if (txFullOutput.includes(`TX_OK:${method}`)) {
+          const txMaspPath = await findMasp(join(tmpDir, `__tx_${method}`));
+          if (txMaspPath) {
+            const txMaspBytes = await readFile(txMaspPath);
+            txScripts[method] = txMaspBytes.toString("base64");
+            yield { type: "output", text: `  ✓ TX script for ${method}` };
           }
+        } else {
+          yield { type: "output", text: `  ✗ TX script for ${method} failed` };
         }
-      } catch (e) {
-        yield { type: "output", text: `  ✗ TX scripts: ${e}` };
       }
     }
 
@@ -244,15 +265,12 @@ fn run(_arg: Word, account: &mut Account) {
       },
     };
   } finally {
-    // Cleanup temp directory
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
 async function findMasp(dir: string): Promise<string | null> {
-  // cargo-miden output location may vary — search common paths
   const { readdir } = await import("fs/promises");
-
   async function walk(d: string): Promise<string | null> {
     try {
       const entries = await readdir(d, { withFileTypes: true });
@@ -265,11 +283,8 @@ async function findMasp(dir: string): Promise<string | null> {
           return full;
         }
       }
-    } catch {
-      // Skip inaccessible directories
-    }
+    } catch { /* skip */ }
     return null;
   }
-
   return walk(dir);
 }

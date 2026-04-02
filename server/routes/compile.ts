@@ -3,7 +3,6 @@ import { compileContract } from "../services/compiler.js";
 
 const router = Router();
 
-// Track concurrent compilations
 let activeCompilations = 0;
 const MAX_CONCURRENT = 3;
 
@@ -25,20 +24,30 @@ router.post("/compile", async (req: Request, res: Response) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable nginx buffering
+  res.flushHeaders(); // send headers immediately
+
+  const send = (data: unknown) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    // Force flush — Node's HTTP response doesn't auto-flush SSE
+    if (typeof (res as unknown as { flush?: () => void }).flush === "function") {
+      (res as unknown as { flush: () => void }).flush();
+    }
+  };
 
   try {
     for await (const event of compileContract(files)) {
       if (event.type === "output") {
-        res.write(`data: ${JSON.stringify({ output: event.text })}\n\n`);
+        send({ output: event.text });
       } else {
-        res.write(`data: ${JSON.stringify({ result: event.result })}\n\n`);
+        send({ result: event.result });
       }
     }
-    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    send({ done: true });
     res.end();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Compilation failed";
-    res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    send({ error: message });
     res.end();
   } finally {
     activeCompilations--;
