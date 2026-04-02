@@ -275,11 +275,18 @@ export default function App() {
 
         // Get the pre-compiled tx script for the method
         const contractData = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
-        // Use EXACT Rust method name with underscores — must match contractData.methods[]
-        // Available methods: contractData.methods (e.g., ["get_count", "increment_count", "reset"])
-        const methodName = "increment_count";
+        // Find the right tx-script by method name
+        // Helper: find method matching a keyword (e.g., "increment" matches "increment_count")
+        const findMethod = (keyword) => {
+          const methods = Object.keys(contractData?.txScripts || {});
+          return methods.find(m => m === keyword) || methods.find(m => m.includes(keyword)) || keyword;
+        };
+        const methodName = findMethod("increment_count");
         const txScriptBytes = contractData?.txScripts?.[methodName];
-        if (!txScriptBytes) throw new Error(\`No TX script for \${methodName}. Recompile the contract.\`);
+        if (!txScriptBytes) {
+          const available = Object.keys(contractData?.txScripts || {}).join(", ");
+          throw new Error(\`No TX script for \${methodName}. Available: \${available}\`);
+        }
 
         // Load the pre-compiled transaction script from .masp
         const txScriptPkg = Package.deserialize(txScriptBytes);
