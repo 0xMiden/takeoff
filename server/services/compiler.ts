@@ -3,7 +3,8 @@ import { mkdtemp, writeFile, mkdir, readFile, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
-const COMPILE_TIMEOUT_MS = 120_000;
+const COMPILE_TIMEOUT_MS = 180_000;
+const TX_SCRIPTS_TIMEOUT_MS = 360_000;
 const DOCKER_IMAGE = "docker-compiler";
 
 interface CompileResult {
@@ -164,9 +165,10 @@ fn run(_arg: Word, account: &mut Account) {
       }
 
       // Build a bash script that compiles all tx-scripts sequentially
+      // Share cargo target dir with the main contract build for faster deps compilation
       const buildScript = methods.map(m =>
-        `cd /project/__tx_${m} && cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
-      ).join(" && ");
+        `cd /project/__tx_${m} && CARGO_TARGET_DIR=/project/__tx_${m}/target cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
+      ).join(" ; ");
 
       try {
         const txOutput = await new Promise<string>((resolve, reject) => {
@@ -178,7 +180,7 @@ fn run(_arg: Word, account: &mut Account) {
             "bash", "-c", buildScript,
           ]);
           let output = "";
-          const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX scripts compile timeout")); }, COMPILE_TIMEOUT_MS * 2);
+          const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX scripts compile timeout")); }, TX_SCRIPTS_TIMEOUT_MS);
           proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
           proc.stderr.on("data", (d: Buffer) => { output += d.toString(); });
           proc.on("close", () => { clearTimeout(timeout); resolve(output); });
