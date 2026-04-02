@@ -277,15 +277,21 @@ export default function App() {
         const contractData = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
         if (!contractData?.masmSource) throw new Error("Compiled MASM not found. Recompile the contract.");
 
-        // Use buildLibrary with MASM source (proven tutorial approach)
-        const builder = client.createCodeBuilder();
-        const lib = builder.buildLibrary("external_contract::my_contract", contractData.masmSource);
-        builder.linkDynamicLibrary(lib);
+        // Load the compiled library from .masp and link it
+        const pkg = Package.deserialize(contractData.packageBytes);
+        const library = pkg.asLibrary();
 
-        // Method names: Rust underscores → WIT hyphens: increment_count → increment-count
-        const method = "increment-count";
+        const builder = client.createCodeBuilder();
+        builder.linkStaticLibrary(library);
+
+        // Call the procedure by its full WIT path (from .masp)
+        // Pattern: "package:name/interface@version"::"method-name"
+        // Method names use hyphens: increment_count → increment-count
+        const compPkg = contractData.componentPackage; // e.g. "miden:counter-contract"
+        const iface = compPkg.split(":").pop(); // e.g. "counter-contract"
+        const method = "increment-count"; // WIT convention: hyphens
         const txScript = builder.compileTxScript(
-          \`use external_contract::my_contract\\nbegin\\n  call.my_contract::\${method}\\nend\`
+          \`begin\\n  exec.::"\${compPkg}/\${iface}@0.1.0"::"\${method}"\\nend\`
         );
 
         const txRequest = new TransactionRequestBuilder()
@@ -317,9 +323,10 @@ export default function App() {
 - Use \`useMiden().client\` — it IS the real WebClient
 - ALWAYS wrap client calls in \`runExclusive\`
 - \`window.__TAKEOFF_CONTRACTS["name"]\` has: \`.packageBytes\`, \`.componentPackage\`, \`.methods\`, \`.accountId\`, \`.masmSource\`
-- Use \`builder.buildLibrary("external_contract::my_contract", data.masmSource)\` to build the library from MASM
-- Then \`builder.linkDynamicLibrary(lib)\` to link it
-- TX script: \`use external_contract::my_contract\\nbegin\\n  call.my_contract::method-name\\nend\`
+- \`Package.deserialize(data.packageBytes).asLibrary()\` gets the compiled Library
+- \`builder.linkStaticLibrary(library)\` copies procedures into the TX script scope
+- TX script: \`begin\\n  exec.::"pkg:name/iface@version"::"method-name"\\nend\`
+- Build path: \`const pkg = data.componentPackage; const iface = pkg.split(":").pop();\`
 - Method names convert underscores to hyphens: \`increment_count\` → \`increment-count\`
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 
