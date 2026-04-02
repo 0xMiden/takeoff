@@ -153,17 +153,18 @@ ${contractList}
 
 1. Get the account via \`client.getAccount(accountId)\`
 2. Get slot names: \`account.storage().getSlotNames()\`
-3. Read a value using the global helper (handles both StorageMap and Value slots automatically):
+3. Read a value as a number:
    \`\`\`
-   const value = window.__midenReadStorage(account.storage(), slotName);
+   const num = account.storage().readNumber(slotName);
    \`\`\`
-4. Convert to number using the global helper (handles little-endian byte order):
+   This returns the first felt as a JavaScript number. Works for BOTH Value and StorageMap slots automatically.
+   For map slots with a specific key, pass it as second argument:
    \`\`\`
-   const num = window.__midenWordToNum(value);
+   const num = account.storage().readNumber(slotName, key);
    \`\`\`
 
-These two helpers (\`__midenReadStorage\` and \`__midenWordToNum\`) are provided by the playground runtime.
-ALWAYS use them instead of calling \`getItem\`/\`getMapItem\`/\`toHex\` directly.
+**Use \`readNumber\` for reading numeric values. Use \`readValue\` if you need the raw Word.**
+**Do NOT use \`getItem\` — it returns the map commitment hash for StorageMap slots, which is useless.**
 
 ## How to Execute Contract Methods
 
