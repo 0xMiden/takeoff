@@ -2,7 +2,6 @@ import * as MidenReact from "@miden-sdk/react";
 import * as MidenSdk from "@miden-sdk/miden-sdk";
 import * as React from "react";
 import { transform } from "sucrase";
-import { init, parse } from "es-module-lexer";
 
 const MODULE_MAP: Record<string, unknown> = {
   "@miden-sdk/react": MidenReact,
@@ -10,75 +9,110 @@ const MODULE_MAP: Record<string, unknown> = {
   react: React,
 };
 
-let lexerReady = false;
+// Regex to match import statements (handles multiline)
+const IMPORT_RE =
+  /^import\s+(?:(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+\w+))?)\s+from\s+["']([^"']+)["'];?\s*$/gm;
+
+interface ParsedImport {
+  fullMatch: string;
+  bindings: string; // everything between `import` and `from`
+  source: string; // module name
+}
+
+function parseImports(code: string): { imports: ParsedImport[]; codeWithoutImports: string } {
+  const imports: ParsedImport[] = [];
+  const codeWithoutImports = code.replace(IMPORT_RE, (fullMatch, source) => {
+    // Extract bindings: everything between "import " and " from"
+    const bindingsMatch = fullMatch.match(/^import\s+([\s\S]+?)\s+from\s+/);
+    const bindings = bindingsMatch ? bindingsMatch[1].trim() : "";
+    imports.push({ fullMatch, bindings, source });
+    return ""; // Remove import from code
+  });
+  return { imports, codeWithoutImports };
+}
+
+function buildBindings(bindings: string, argName: string): string {
+  // Handle: { a, b as c }
+  const namedMatch = bindings.match(/\{([^}]+)\}/);
+  const defaultMatch = bindings.match(/^(\w+)/);
+  const starMatch = bindings.match(/\*\s+as\s+(\w+)/);
+
+  const parts: string[] = [];
+
+  // Check for default import before braces: `Name, { a, b }`
+  if (namedMatch) {
+    const specs = namedMatch[1]
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    for (const spec of specs) {
+      const [orig, alias] = spec.split(/\s+as\s+/).map((s) => s.trim());
+      const localName = alias ?? orig;
+      parts.push(`const ${localName} = ${argName}["${orig}"];`);
+    }
+
+    // Default import before braces
+    const preDefault = bindings.match(/^(\w+)\s*,\s*\{/);
+    if (preDefault) {
+      parts.unshift(`const ${preDefault[1]} = ${argName}.default ?? ${argName};`);
+    }
+  } else if (starMatch) {
+    parts.push(`const ${starMatch[1]} = ${argName};`);
+  } else if (defaultMatch) {
+    parts.push(`const ${defaultMatch[1]} = ${argName}.default ?? ${argName};`);
+  }
+
+  return parts.join("\n");
+}
 
 export async function compileComponent(
   code: string
 ): Promise<React.ComponentType> {
-  // Ensure es-module-lexer WASM is initialized
-  if (!lexerReady) {
-    await init;
-    lexerReady = true;
-  }
+  // Step 1: Parse and extract imports from raw source (before Sucrase)
+  const { imports, codeWithoutImports } = parseImports(code);
 
-  // Step 1: Sucrase transpile TSX→JS using classic runtime (React.createElement)
-  // This avoids injecting "react/jsx-runtime" imports that our MODULE_MAP can't resolve
-  const transpiled = transform(code, {
+  // Step 2: Sucrase transpile the remaining code (TSX → JS)
+  const transpiled = transform(codeWithoutImports, {
     transforms: ["typescript", "jsx"],
     jsxRuntime: "classic",
     production: true,
   }).code;
 
-  // Step 2: Parse imports with es-module-lexer
-  const [imports] = parse(transpiled);
-
-  // Step 3: Collect import bindings and build injection code
+  // Step 3: Build module injection from parsed imports
   const moduleArgs: string[] = [];
   const moduleValues: unknown[] = [];
-  let strippedCode = transpiled;
 
-  // Process imports in reverse order so string indices stay valid
-  const sortedImports = [...imports].sort((a, b) => b.ss - a.ss);
-
-  for (const imp of sortedImports) {
-    const source = imp.n;
-    if (!source) continue;
-
-    const mod = MODULE_MAP[source];
+  for (const imp of imports) {
+    const mod = MODULE_MAP[imp.source];
     if (!mod) {
       throw new Error(
-        `Unknown module "${source}". Only these are available in the preview: ${Object.keys(MODULE_MAP).join(", ")}`
+        `Unknown module "${imp.source}". Only these are available in the preview: ${Object.keys(MODULE_MAP).join(", ")}`
       );
     }
 
-    // Extract the full import statement text
-    const importStatement = transpiled.slice(imp.ss, imp.se);
-
-    // Parse what's being imported from the statement
     const argName = `__mod_${moduleArgs.length}`;
     moduleArgs.push(argName);
     moduleValues.push(mod);
-
-    // Build destructuring from the import statement
-    const bindings = extractBindings(importStatement, argName);
-
-    // Replace the import statement with variable declarations
-    strippedCode =
-      strippedCode.slice(0, imp.ss) + bindings + strippedCode.slice(imp.se);
   }
 
-  // Step 4: Strip export statements — new Function() doesn't support them
-  strippedCode = strippedCode
+  // Step 4: Build variable declarations from import bindings
+  const bindingCode = imports
+    .map((imp, i) => buildBindings(imp.bindings, `__mod_${i}`))
+    .join("\n");
+
+  // Step 5: Strip export statements
+  let strippedCode = transpiled
     .replace(/export\s+default\s+function\s+/g, "function ")
     .replace(/export\s+default\s+/g, "const __default = ")
     .replace(/export\s+function\s+/g, "function ")
     .replace(/export\s+const\s+/g, "const ")
     .replace(/export\s+\{[^}]*\};?/g, "");
 
-  // Step 5: Wrap in a function and execute
-  // Classic JSX mode outputs React.createElement() calls, so React must be in scope.
+  // Step 6: Wrap and execute
   const wrappedCode = `
 const React = __React;
+${bindingCode}
 ${strippedCode}
 
 return typeof App !== 'undefined' ? App :
@@ -90,7 +124,6 @@ return typeof App !== 'undefined' ? App :
   try {
     fn = new Function("__React", ...moduleArgs, wrappedCode);
   } catch (e) {
-    // Log the generated code for debugging
     console.error("Preview compile error in generated code:");
     console.error(wrappedCode);
     throw e;
@@ -104,54 +137,4 @@ return typeof App !== 'undefined' ? App :
   }
 
   return Component;
-}
-
-function extractBindings(importStatement: string, argName: string): string {
-  // Handle: import { a, b as c } from "..."
-  const namedMatch = importStatement.match(
-    /import\s*\{([^}]+)\}\s*from\s*/
-  );
-  if (namedMatch) {
-    const specs = namedMatch[1]
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const bindings = specs
-      .map((spec) => {
-        const [orig, alias] = spec.split(/\s+as\s+/).map((s) => s.trim());
-        const localName = alias ?? orig;
-        return `const ${localName} = ${argName}["${orig}"];`;
-      })
-      .join("\n");
-
-    // Also check for default import before the braces
-    const defaultMatch = importStatement.match(
-      /import\s+(\w+)\s*,\s*\{/
-    );
-    if (defaultMatch) {
-      return `const ${defaultMatch[1]} = ${argName}.default ?? ${argName};\n${bindings}`;
-    }
-
-    return bindings;
-  }
-
-  // Handle: import Name from "..."
-  const defaultMatch = importStatement.match(
-    /import\s+(\w+)\s+from\s*/
-  );
-  if (defaultMatch) {
-    return `const ${defaultMatch[1]} = ${argName}.default ?? ${argName};`;
-  }
-
-  // Handle: import * as Name from "..."
-  const starMatch = importStatement.match(
-    /import\s*\*\s*as\s+(\w+)\s+from\s*/
-  );
-  if (starMatch) {
-    return `const ${starMatch[1]} = ${argName};`;
-  }
-
-  // Side-effect import: import "..."
-  return `/* side-effect import: ${argName} */`;
 }
