@@ -217,8 +217,9 @@ fn run(_arg: Word, account: &mut Account) {
 
       // Build all tx-scripts in one Docker run, sharing the cargo cache volume
       const total = methods.length;
+      // Reuse the contract's target dir — all deps are already compiled there
       const buildScript = methods.map((m, i) =>
-        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && CARGO_TARGET_DIR=/cache/target/tx_${m} cargo miden build --release 2>&1 && mkdir -p /project/__tx_${m}/target && cp -r /cache/target/tx_${m}/miden /project/__tx_${m}/target/miden 2>/dev/null && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
+        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release 2>&1 && mkdir -p /project/__tx_${m}/target && cp -r /cache/target/contract/miden /project/__tx_${m}/target/miden 2>/dev/null && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
       ).join(" ; ");
 
       const txRunner = runDocker([
