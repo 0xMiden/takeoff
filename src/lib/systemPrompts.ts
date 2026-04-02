@@ -156,19 +156,26 @@ ${contractList}
 3. Convert to AccountId: \`AccountId.fromHex(hexId)\`
 4. Get the account: \`await client.getAccount(accountId)\` (import if needed with \`client.importAccountById\`)
 5. Get slot names: \`account.storage().getSlotNames()\`
-6. Read values:
-   - **StorageMap** → \`account.storage().getMapItem(slotName, key)\` where key is a Word
-   - **Value** → \`account.storage().getItem(slotName)\`
-   - **NEVER use getItem on a StorageMap** — it returns the map hash, not the value
-7. Convert Word hex to number: \`Number(BigInt("0x" + hex.slice(2, 18).match(/../g).reverse().join("")))\`
-   - Words are little-endian: bytes must be reversed
-   - First 16 hex chars after "0x" = first Felt
+6. Read values using \`getMapItem\` (DEFAULT — most contract storage uses StorageMap):
+   \`\`\`
+   const key = Word.newFromFelts([new Felt(0n), new Felt(0n), new Felt(0n), new Felt(1n)]);
+   const value = account.storage().getMapItem(slotName, key);
+   \`\`\`
+   Only use \`getItem(slotName)\` if the contract explicitly uses \`Value\` type (rare).
+   **getItem on a StorageMap returns a useless hash — always use getMapItem for maps.**
+7. Convert Word hex to number (LITTLE-ENDIAN):
+   \`\`\`
+   const hex = value.toHex();
+   const num = Number(BigInt("0x" + hex.slice(2, 18).match(/../g).reverse().join("")));
+   \`\`\`
+   This takes the first Felt (16 hex chars after "0x") and reverses byte order.
 
 ## How to Create a Word Key
 
-Use \`Word.newFromFelts([new Felt(0n), new Felt(0n), new Felt(0n), new Felt(1n)])\`
+\`Word.newFromFelts([new Felt(0n), new Felt(0n), new Felt(0n), new Felt(1n)])\`
 
-The Felt constructor takes \`bigint\`: \`new Felt(42n)\`, \`new Felt(0n)\`
+The Felt constructor takes \`bigint\`: \`new Felt(42n)\`, \`new Felt(0n)\`.
+You MUST import both Felt and Word from "@miden-sdk/miden-sdk".
 
 ## How to Execute Contract Methods
 
@@ -182,15 +189,14 @@ Keys are Rust method names with underscores (e.g., \`increment_count\`, \`get_co
 5. Submit: \`await client.submitNewTransaction(account.id(), txRequest)\`
 6. Sync: \`await sync()\` then re-read storage
 
-## Required Import Pattern
+## MANDATORY Import — Copy This Exactly
 
 \`\`\`tsx
-import { useState, useEffect, useCallback } from "react";
-import { useMiden, useSyncState } from "@miden-sdk/react";
 import { AccountId, Felt, Word, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
 \`\`\`
 
-Always import Felt and Word — they are needed for storage key construction and value reading.
+You MUST include Felt and Word. Without them you cannot create storage keys or read values.
+If you omit Felt or Word, the app WILL crash.
 
 ## Rules
 
