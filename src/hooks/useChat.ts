@@ -94,8 +94,23 @@ export function useChat() {
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
-    finalizeStream();
-  }, [finalizeStream]);
+    // Finalize the stream and extract any code blocks from partial content
+    const state = usePlaygroundStore.getState();
+    const key = mode === "contracts" ? "contractChat" : "dappChat";
+    const { streamingMessageId: smId } = state;
+    if (smId) {
+      const msg = state[key].find((m: { id: string }) => m.id === smId);
+      const codeBlocks = msg ? extractCodeBlocks(msg.content) : [];
+      usePlaygroundStore.setState({
+        [key]: state[key].map((m: { id: string; content: string }) =>
+          m.id === smId
+            ? { ...m, isStreaming: false, codeBlocks }
+            : m
+        ),
+        streamingMessageId: null,
+      });
+    }
+  }, [mode]);
 
   return { send, stop, isStreaming: !!streamingMessageId };
 }

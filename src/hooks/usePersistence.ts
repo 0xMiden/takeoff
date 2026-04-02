@@ -11,13 +11,20 @@ export function usePersistence() {
   useEffect(() => {
     loadState().then((saved) => {
       if (saved) {
+        // Clean up any stale streaming messages from interrupted sessions
+        const cleanChat = (msgs: typeof saved.contractChat) =>
+          msgs.map((m) =>
+            m.isStreaming ? { ...m, isStreaming: false } : m
+          );
+
         usePlaygroundStore.setState({
           contractFiles: saved.contractFiles,
           dappFiles: saved.dappFiles,
-          contractChat: saved.contractChat,
-          dappChat: saved.dappChat,
+          contractChat: cleanChat(saved.contractChat),
+          dappChat: cleanChat(saved.dappChat),
           contracts: saved.contracts,
           mode: saved.mode,
+          streamingMessageId: null,
         });
       } else {
         // First launch — populate with templates
