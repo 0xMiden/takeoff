@@ -298,5 +298,6 @@ ${contractList}
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
 - Import @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder) as STATIC imports at the top. Do NOT use dynamic import() — it doesn't work in the preview.
 - Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
-- Account IDs starting with "mtst1" or "miden1" are bech32 — use \`AccountId.fromBech32(id)\`. Only use \`fromHex\` for raw 32-char hex strings.`;
+- Account IDs starting with "mtst1" or "miden1" are bech32 — use \`AccountId.fromBech32(id)\`. Only use \`fromHex\` for raw 32-char hex strings.
+- Some IDs may have a "_noteTag" suffix (e.g., "mtst1abc..._xyz"). Strip the underscore and everything after before passing to \`fromBech32\`: \`id.split("_")[0]\``;
 }

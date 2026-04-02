@@ -64,7 +64,10 @@ export function useDeploy() {
           // 6. Store locally
           await client.newAccount(account, false);
 
-          return { accountId: account.bech32id(), seed };
+          // bech32id() may return "accountId_noteTag" format — strip the note tag
+          const fullId = account.bech32id();
+          const accountId = fullId.includes("_") ? fullId.split("_")[0] : fullId;
+          return { accountId, seed };
         });
 
         // 7. Sync with network
