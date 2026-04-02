@@ -79,9 +79,8 @@ export function useDeploy() {
             appendConsole("info", `  Storage slot: ${slotName} (${fieldType})`);
           }
 
-          // 4. Extract library from package and create component with all-types support
-          const library = pkg.asLibrary();
-          const component = AccountComponent.fromLibrary(library, slots as unknown as never[])
+          // 4. Create component from package with storage slots
+          const component = AccountComponent.fromPackage(pkg, slots)
             .withSupportsAllTypes();
 
           // 5. Build account
