@@ -217,8 +217,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
 import { AccountId, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
 
-const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
 const CONTRACT_NAME = "my-contract"; // matches the name in the Contracts panel
+// Get the contract ID dynamically from the playground — no need to hardcode!
+const CONTRACT_ID = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME]?.accountId ?? "";
 
 export default function App() {
   const { isReady, signerAccountId, client, runExclusive } = useMiden();
@@ -350,6 +351,7 @@ ${contractList}
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
 - Import AccountId, TransactionRequestBuilder etc. from "@miden-sdk/miden-sdk" as STATIC imports
 - Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
-- Deployed contract IDs from the contract list are hex strings (e.g., "0x1234abcd..."). Use \`AccountId.fromHex(id)\` to convert them.
+- Get the contract ID dynamically: \`window.__TAKEOFF_CONTRACTS?.["my-contract"]?.accountId\` — do NOT hardcode hex IDs
+- Use \`AccountId.fromHex(id)\` to convert the hex string to an AccountId object
 - For contract interaction, use \`useMiden().client\` — it is the real WebClient. Wrap calls in \`runExclusive\`.`;
 }
