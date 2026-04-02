@@ -275,7 +275,9 @@ export default function App() {
 
         // Get the pre-compiled tx script for the method
         const contractData = window.__TAKEOFF_CONTRACTS?.[CONTRACT_NAME];
-        const methodName = "increment_count"; // exact Rust method name (underscores)
+        // Use EXACT Rust method name with underscores — must match contractData.methods[]
+        // Available methods: contractData.methods (e.g., ["get_count", "increment_count", "reset"])
+        const methodName = "increment_count";
         const txScriptBytes = contractData?.txScripts?.[methodName];
         if (!txScriptBytes) throw new Error(\`No TX script for \${methodName}. Recompile the contract.\`);
 
@@ -316,7 +318,9 @@ export default function App() {
 - \`Package.deserialize(txScriptBytes)\` → \`TransactionScript.fromPackage(pkg)\` creates the script
 - \`TransactionRequestBuilder().withCustomScript(txScript).build()\` creates the transaction request
 - \`client.submitNewTransaction(accountId, txRequest)\` submits it
-- Method names convert underscores to hyphens: \`increment_count\` → \`increment-count\`
+- TX script keys use the EXACT Rust method name with underscores: \`increment_count\`, NOT \`increment\` or \`increment-count\`
+- Check \`contractData.methods\` array to see available method names
+- The method name in \`txScripts["method_name"]\` must EXACTLY match the Rust \`pub fn\` name
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 
 ## Deployed contracts
