@@ -200,83 +200,141 @@ export default function App() {
 }
 \`\`\`
 
-## Calling Custom Contract Methods (EXACT API — use these precisely)
+## Calling Custom Contract Methods (EXACT working pattern from Miden docs)
 
-### Reading contract storage value
+The react-sdk's client proxy may not expose all WebClient methods. For contract interaction,
+create a dedicated WebClient instance. This is the PROVEN pattern from the official tutorial.
+
+### Complete working example for a counter contract dApp:
 \`\`\`tsx
-// Inside an async function or useEffect
-const { client, runExclusive } = useMiden();
+import { useState, useEffect, useCallback } from "react";
+import { useMiden, useSyncState } from "@miden-sdk/react";
+import { WebClient, Address, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
 
-// At the top of the file:
-// import { AccountId, Word } from "@miden-sdk/miden-sdk";
+const CONTRACT_ID = "THE_DEPLOYED_CONTRACT_HEX_ID";
+const RPC_URL = "https://rpc.testnet.miden.io";
 
-const readCounter = async () => {
-  if (!client) return 0;
-  return await runExclusive(async () => {
-    const accountId = AccountId.fromHex(CONTRACT_ID);
-    const account = await client.getAccount(accountId);
-    if (!account) return 0;
+// The MASM source code of the counter contract
+const COUNTER_CONTRACT_CODE = \`
+  use miden::protocol::active_account
+  use miden::protocol::native_account
+  use miden::core::word
+  use miden::core::sys
 
-    // Storage slot name pattern: "miden::component::<package_with_underscores>::<field>"
-    const slotName = "miden::component::miden_counter_contract::count_map";
-    const key = Word.fromHex("0000000000000000000000000000000000000000000000000000000000000001");
-    const value = account.storage().getMapItem(slotName, key);
-    if (!value) return 0;
+  const COUNTER_SLOT = word("miden::component::miden_counter_contract::count_map")
 
-    const hex = value.toHex();
-    return Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
-  });
-};
+  pub proc get_count
+      push.COUNTER_SLOT[0..2] exec.active_account::get_item
+      exec.sys::truncate_stack
+  end
+
+  pub proc increment_count
+      push.COUNTER_SLOT[0..2] exec.active_account::get_item
+      add.1
+      push.COUNTER_SLOT[0..2] exec.native_account::set_item
+      exec.sys::truncate_stack
+  end
+\`;
+
+export default function App() {
+  const { isReady, signerAccountId } = useMiden();
+  const { syncHeight } = useSyncState();
+  const [counterValue, setCounterValue] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Helper: create a fresh WebClient for direct contract interaction
+  const getClient = useCallback(async () => {
+    return await WebClient.createClient(RPC_URL);
+  }, []);
+
+  // Read counter value
+  const fetchCounter = useCallback(async () => {
+    try {
+      const client = await getClient();
+      // Import the contract account if not yet known
+      const { AccountId } = await getModules();
+      const accountId = AccountId.fromHex(CONTRACT_ID);
+
+      let account = await client.getAccount(accountId);
+      if (!account) {
+        await client.importAccountById(accountId);
+        await client.syncState();
+        account = await client.getAccount(accountId);
+      }
+      if (!account) return;
+
+      const slotName = "miden::component::miden_counter_contract::count_map";
+      const value = account.storage().getItem(slotName);
+      if (value) {
+        const hex = value.toHex();
+        const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
+        setCounterValue(num);
+      }
+    } catch (err) {
+      console.error("Failed to read counter:", err);
+    }
+  }, [getClient]);
+
+  // Increment counter
+  const increment = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const client = await getClient();
+      const { AccountId } = await getModules();
+      const accountId = AccountId.fromHex(CONTRACT_ID);
+
+      let account = await client.getAccount(accountId);
+      if (!account) {
+        await client.importAccountById(accountId);
+        await client.syncState();
+        account = await client.getAccount(accountId);
+      }
+
+      const builder = client.createCodeBuilder();
+      const lib = builder.buildLibrary("external_contract::counter_contract", COUNTER_CONTRACT_CODE);
+      builder.linkDynamicLibrary(lib);
+
+      const txScript = builder.compileTxScript(
+        "use external_contract::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
+      );
+
+      const txRequest = new TransactionRequestBuilder()
+        .withCustomScript(txScript)
+        .build();
+
+      await client.submitNewTransaction(account.id(), txRequest);
+      await client.syncState();
+      await fetchCounter();
+    } catch (err) {
+      setError(err.message || "Transaction failed");
+      console.error("Increment failed:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getClient, fetchCounter]);
+
+  useEffect(() => {
+    if (isReady) fetchCounter();
+  }, [isReady, syncHeight, fetchCounter]);
+
+  // ... render UI here
+}
+
+// Helper to avoid issues with static imports of WASM types
+async function getModules() {
+  const sdk = await import("@miden-sdk/miden-sdk");
+  return sdk;
+}
 \`\`\`
 
-### Executing a transaction (calling increment_count)
-\`\`\`tsx
-const { client, runExclusive } = useMiden();
-
-// At the top of the file:
-// import { AccountId, Word, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
-
-const incrementCounter = async () => {
-  if (!client) return;
-  await runExclusive(async () => {
-    const accountId = AccountId.fromHex(CONTRACT_ID);
-
-    // 1. Create a CodeBuilder to compile the transaction script
-    const builder = client.createCodeBuilder();
-
-    // 2. Get the contract's MASM code and build a library from it
-    const account = await client.getAccount(accountId);
-    const contractCode = account?.code()?.toSourceCode() ?? "";
-    const lib = builder.buildLibrary("external_contract::counter_contract", contractCode);
-    builder.linkDynamicLibrary(lib);
-
-    // 3. Compile the transaction script that calls increment_count
-    const txScriptCode = [
-      "use external_contract::counter_contract",
-      "begin",
-      "  call.counter_contract::increment_count",
-      "end"
-    ].join("\\n");
-    const txScript = builder.compileTxScript(txScriptCode);
-
-    // 4. Build and submit the transaction
-    const txRequest = new TransactionRequestBuilder()
-      .withCustomScript(txScript)
-      .build();
-
-    await client.submitNewTransaction(accountId, txRequest);
-  });
-
-  // 5. Sync to get updated state
-  await sync();
-};
-\`\`\`
-
-### IMPORTANT: Import AccountId, Word, TransactionRequestBuilder etc. as a normal static import at the top of the file:
-\`\`\`tsx
-import { AccountId, Word, TransactionRequestBuilder } from "@miden-sdk/miden-sdk";
-\`\`\`
-Do NOT use dynamic import() — it doesn't work in the preview. Static imports are resolved by the preview runtime.
+### KEY POINTS:
+- Create a FRESH \`WebClient.createClient()\` for contract interactions — do NOT use the react-sdk's client proxy
+- Use \`client.importAccountById()\` to import the contract account if not found locally
+- The MASM contract code must be provided as a string to \`buildLibrary()\`
+- The storage slot constant name matches the pattern \`miden::component::<package>::<field>\`
+- Use \`getModules()\` async helper for WASM type imports that may fail as static imports
 
 ## Deployed contracts
 ${contractList}
@@ -296,7 +354,8 @@ ${contractList}
 - Transaction stages: idle → executing → proving → submitting → complete
 - NEVER comment out real code and replace with setTimeout simulations. Write the real API calls.
 - NEVER add "Development Note" or "simulation" disclaimers. The code runs against the REAL testnet.
-- Import @miden-sdk/miden-sdk types (AccountId, Word, TransactionRequestBuilder) as STATIC imports at the top. Do NOT use dynamic import() — it doesn't work in the preview.
+- Import WebClient, TransactionRequestBuilder etc. from "@miden-sdk/miden-sdk" as static imports OR via async \`getModules()\` helper
 - Available imports: "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
-- Deployed contract IDs from the contract list are hex strings (e.g., "0x1234abcd..."). Use \`AccountId.fromHex(id)\` to convert them.`;
+- Deployed contract IDs from the contract list are hex strings (e.g., "0x1234abcd..."). Use \`AccountId.fromHex(id)\` to convert them.
+- For contract interaction, create a FRESH WebClient via \`WebClient.createClient("https://rpc.testnet.miden.io")\` — do NOT use the react-sdk's client`;
 }
