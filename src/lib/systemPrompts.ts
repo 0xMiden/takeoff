@@ -215,7 +215,7 @@ Compiled contract data is available at \`window.__TAKEOFF_CONTRACTS["contract-na
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { AccountId, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
+import { AccountId, Word, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_NAME = "my-contract"; // matches the name in the Contracts panel
 // Get the contract ID dynamically from the playground — no need to hardcode!
@@ -241,6 +241,8 @@ export default function App() {
   }, [client]);
 
   // Read counter value from storage
+  // IMPORTANT: For StorageMap fields, use getMapItem(slotName, key), NOT getItem(slotName)
+  // getItem returns the map commitment hash (useless), getMapItem reads actual values
   const fetchCounter = useCallback(async () => {
     if (!client) return;
     try {
@@ -249,9 +251,16 @@ export default function App() {
         if (!account) return;
 
         const slotNames = account.storage().getSlotNames();
-        // Read first storage slot value
+        console.log("Storage slots:", slotNames);
+
+        // For StorageMap: read the value at the key the contract uses
+        // Counter contract uses key = Word([0, 0, 0, 1])
+        // Create the key as a Word — use Word.fromHex with 4 felts (each 8 hex bytes = 32 bits)
+        // felt(0) = 00000000, felt(1) = 00000001 → full word = 00000000 00000000 00000000 00000001
         if (slotNames.length > 0) {
-          const value = account.storage().getItem(slotNames[0]);
+          // Word is imported statically at the top of the file
+          const key = Word.fromHex("0000000000000000000000000000000000000000000000000000000000000001");
+          const value = account.storage().getMapItem(slotNames[0], key);
           if (value) {
             const hex = value.toHex();
             const num = Number(BigInt("0x" + hex.slice(-16).match(/../g).reverse().join("")));
@@ -324,6 +333,10 @@ export default function App() {
 - \`window.__TAKEOFF_CONTRACTS["name"]\` has: \`.packageBytes\`, \`.componentPackage\`, \`.methods\`, \`.accountId\`, \`.masmSource\`
 - \`data.txScripts["method_name"]\` has the pre-compiled tx script .masp Uint8Array for each method
 - \`Package.deserialize(txScriptBytes)\` → \`TransactionScript.fromPackage(pkg)\` creates the script
+- For StorageMap slots: use \`account.storage().getMapItem(slotName, key)\`, NOT \`getItem(slotName)\`
+  - \`getItem()\` returns the map COMMITMENT HASH — useless for reading values
+  - \`getMapItem(slotName, key)\` returns the actual value stored at that key
+- For Value slots: use \`account.storage().getItem(slotName)\` — returns the Word directly
 - \`TransactionRequestBuilder().withCustomScript(txScript).build()\` creates the transaction request
 - \`client.submitNewTransaction(accountId, txRequest)\` submits it
 - TX script keys use the EXACT Rust method name with underscores: \`increment_count\`, NOT \`increment\` or \`increment-count\`
