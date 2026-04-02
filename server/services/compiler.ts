@@ -55,7 +55,6 @@ export async function* compileContract(
         "miden",
         "build",
         "--release",
-        "--",
         "--emit",
         "masp,masm",
       ]);
