@@ -86,7 +86,15 @@ return typeof App !== 'undefined' ? App :
        (() => { throw new Error('No default export found. Export a default function component.'); })();
 `;
 
-  const fn = new Function("__React", ...moduleArgs, wrappedCode);
+  let fn: Function;
+  try {
+    fn = new Function("__React", ...moduleArgs, wrappedCode);
+  } catch (e) {
+    // Log the generated code for debugging
+    console.error("Preview compile error in generated code:");
+    console.error(wrappedCode);
+    throw e;
+  }
   const Component = fn(React, ...moduleValues);
 
   if (typeof Component !== "function") {

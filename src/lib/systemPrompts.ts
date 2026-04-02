@@ -254,9 +254,13 @@ const incrementCounter = async () => {
     builder.linkDynamicLibrary(lib);
 
     // 3. Compile the transaction script that calls increment_count
-    const txScript = builder.compileTxScript(
-      "use external_contract::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
-    );
+    const txScriptCode = [
+      "use external_contract::counter_contract",
+      "begin",
+      "  call.counter_contract::increment_count",
+      "end"
+    ].join("\\n");
+    const txScript = builder.compileTxScript(txScriptCode);
 
     // 4. Build and submit the transaction
     const txRequest = new TransactionRequestBuilder()
