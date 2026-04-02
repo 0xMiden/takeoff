@@ -215,7 +215,7 @@ Compiled contract data is available at \`window.__TAKEOFF_CONTRACTS["contract-na
 \`\`\`tsx
 import { useState, useEffect, useCallback } from "react";
 import { useMiden, useSyncState } from "@miden-sdk/react";
-import { AccountId, Word, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
+import { AccountId, Felt, Word, Package, TransactionRequestBuilder, TransactionScript } from "@miden-sdk/miden-sdk";
 
 const CONTRACT_NAME = "my-contract"; // matches the name in the Contracts panel
 // Get the contract ID dynamically from the playground — no need to hardcode!
@@ -258,8 +258,8 @@ export default function App() {
         // Create the key as a Word — use Word.fromHex with 4 felts (each 8 hex bytes = 32 bits)
         // felt(0) = 00000000, felt(1) = 00000001 → full word = 00000000 00000000 00000000 00000001
         if (slotNames.length > 0) {
-          // Word is imported statically at the top of the file
-          const key = Word.fromHex("0000000000000000000000000000000000000000000000000000000000000001");
+          // Create the key as a Word from 4 Felts — Felt and Word imported at top
+          const key = Word.newFromFelts([new Felt(0n), new Felt(0n), new Felt(0n), new Felt(1n)]);
           const value = account.storage().getMapItem(slotNames[0], key);
           if (value) {
             const hex = value.toHex();
