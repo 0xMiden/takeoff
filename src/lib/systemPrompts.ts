@@ -281,8 +281,11 @@ export default function App() {
         const builder = client.createCodeBuilder();
         builder.linkDynamicLibrary(library);
 
+        // The procedure path uses the WIT component model convention:
+        // "package:name/interface@version"::"procedure-name"
+        // Note: hyphens in names, NOT underscores. And quoted with ::""
         const txScript = builder.compileTxScript(
-          "use miden::counter_contract\\nbegin\\n  call.counter_contract::increment_count\\nend"
+          'begin\\n  call.::"miden:counter-contract/counter-contract@0.1.0"::"increment-count"\\nend'
         );
 
         const txRequest = new TransactionRequestBuilder()
@@ -316,8 +319,11 @@ export default function App() {
 - \`window.__TAKEOFF_CONTRACTS["contract-name"]\` has the compiled .masp Uint8Array bytes
 - \`Package.deserialize(bytes).asLibrary()\` gets the compiled Library (no MASM source needed)
 - \`builder.linkDynamicLibrary(library)\` links the compiled library for use in TX scripts
-- The module path in the TX script \`use\` statement must match the contract's component package name from Cargo.toml (e.g., \`package = "miden:counter-contract"\` → \`use miden::counter_contract\`)
-- Procedure names match the Rust method names: \`increment_count\`, \`get_count\`, etc.
+- TX scripts call procedures by their full WIT path: \`call.::"package:name/interface@version"::"procedure-name"\`
+- For \`package = "miden:counter-contract"\`, version \`0.1.0\`, procedure \`increment_count\`:
+  Path is: \`"miden:counter-contract/counter-contract@0.1.0"::"increment-count"\`
+- Note: procedure names use HYPHENS (WIT convention), not underscores: \`increment-count\` not \`increment_count\`
+- No \`use\` statement needed — just \`begin ... call.::\"..\" ... end\`
 - ALL imports must be STATIC at the top. Do NOT use dynamic import().
 
 ## Deployed contracts
