@@ -1,7 +1,6 @@
 import { usePlaygroundStore } from "@/store/usePlaygroundStore";
 import { useCompile } from "@/hooks/useCompile";
 import { useDeploy } from "@/hooks/useDeploy";
-import { useSigner, useMiden } from "@miden-sdk/react";
 import { cn } from "@/lib/cn";
 import { Box, Copy, Check, Play, Loader2, Upload } from "lucide-react";
 import { useState } from "react";
@@ -78,10 +77,7 @@ function ContractItem({
   isReadOnly: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const { deploy } = useDeploy();
-  const signer = useSigner();
-  const { isReady } = useMiden();
-  const walletConnected = signer?.isConnected ?? false;
+  const { deploy, isReady } = useDeploy();
 
   const handleCopy = () => {
     if (contract.accountId) {
@@ -104,16 +100,13 @@ function ContractItem({
     contract.compileStatus === "success" &&
     contract.deployStatus !== "deployed" &&
     contract.deployStatus !== "deploying" &&
-    walletConnected &&
     isReady;
 
-  const deployTooltip = !walletConnected
-    ? "Connect wallet first"
-    : !isReady
-      ? "Initializing..."
-      : contract.compileStatus !== "success"
-        ? "Compile first"
-        : null;
+  const deployTooltip = !isReady
+    ? "Initializing..."
+    : contract.compileStatus !== "success"
+      ? "Compile first"
+      : null;
 
   const statusLabel =
     contract.deployStatus === "deployed"

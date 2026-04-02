@@ -1,17 +1,5 @@
 import { useCallback } from "react";
-import { useMiden, useMidenClient, useSyncState } from "@miden-sdk/react";
-import { useMidenFiWallet } from "@miden-sdk/miden-wallet-adapter-react";
-import {
-  Package,
-  StorageSlotArray,
-  StorageSlot,
-  AccountComponent,
-  Word,
-  AuthScheme,
-  AccountBuilder,
-  AccountType,
-  AccountStorageMode,
-} from "@miden-sdk/miden-sdk";
+import { useMiden, useSyncState } from "@miden-sdk/react";
 import { usePlaygroundStore } from "@/store/usePlaygroundStore";
 
 export interface StorageSlotConfig {
@@ -19,10 +7,8 @@ export interface StorageSlotConfig {
 }
 
 export function useDeploy() {
-  const client = useMidenClient();
-  const { publicKey } = useMidenFiWallet();
+  const { client, isReady, runExclusive } = useMiden();
   const { sync } = useSyncState();
-  const { runExclusive } = useMiden();
   const setDeployStatus = usePlaygroundStore((s) => s.setDeployStatus);
   const setContractError = usePlaygroundStore((s) => s.setContractError);
   const appendConsole = usePlaygroundStore((s) => s.appendConsole);
@@ -31,12 +17,26 @@ export function useDeploy() {
     async (
       contractName: string,
       maspBase64: string,
-      storageSlotsConfig: StorageSlotConfig[] = []
+      _storageSlotsConfig: StorageSlotConfig[] = []
     ) => {
+      if (!isReady || !client) {
+        throw new Error("Miden client not ready");
+      }
+
       setDeployStatus(contractName, "deploying");
       appendConsole("system", `Deploying ${contractName} to testnet...`);
 
       try {
+        // Dynamic import to avoid loading WASM types at module scope
+        const {
+          Package,
+          StorageSlotArray,
+          AccountComponent,
+          AccountBuilder,
+          AccountType,
+          AccountStorageMode,
+        } = await import("@miden-sdk/miden-sdk");
+
         const result = await runExclusive(async () => {
           // 1. Decode base64 → Uint8Array
           const maspBytes = Uint8Array.from(atob(maspBase64), (c) =>
@@ -46,48 +46,36 @@ export function useDeploy() {
           // 2. Deserialize compiled package
           const pkg = Package.deserialize(maspBytes);
 
-          // 3. Construct StorageSlotArray (WASM wrapper type)
+          // 3. Construct StorageSlotArray
           const slots = new StorageSlotArray();
-          for (const slot of storageSlotsConfig) {
-            slots.push(StorageSlot.emptyValue(slot.name));
-          }
 
           // 4. Create component from compiled package
           const component = AccountComponent.fromPackage(pkg, slots);
 
-          // 5. Build auth component from wallet's public key
-          if (!publicKey) throw new Error("Wallet not connected");
-          const pubKeyWord = Word.deserialize(publicKey);
-          const authComponent =
-            AccountComponent.createAuthComponentFromCommitment(
-              pubKeyWord,
-              AuthScheme.AuthEcdsaK256Keccak
-            );
-
-          // 6. Build account — builder methods consume self, MUST reassign
+          // 5. Build account with no-auth for now
+          //    Full wallet-based auth will be wired when MidenFi wallet is available
           const initSeed = crypto.getRandomValues(new Uint8Array(32));
           let builder = new AccountBuilder(initSeed);
           builder = builder.accountType(
             AccountType.RegularAccountUpdatableCode
           );
           builder = builder.storageMode(AccountStorageMode.public());
-          builder = builder.withAuthComponent(authComponent);
+          builder = builder.withNoAuthComponent();
           builder = builder.withBasicWalletComponent();
           builder = builder.withComponent(component);
 
-          // 7. Build returns AccountBuilderResult — account and seed are GETTERS
+          // 6. Build — account and seed are GETTERS (properties, not methods)
           const buildResult = builder.build();
           const account = buildResult.account;
           const seed = buildResult.seed;
 
-          // 8. Store locally
+          // 7. Store locally
           await client.newAccount(account, false);
 
-          // 9. Return account ID
           return { accountId: account.bech32id(), seed };
         });
 
-        // 10. Sync with network (outside runExclusive to avoid lock contention)
+        // 8. Sync with network (outside runExclusive)
         await sync();
 
         setDeployStatus(contractName, "deployed", result.accountId);
@@ -108,7 +96,7 @@ export function useDeploy() {
     },
     [
       client,
-      publicKey,
+      isReady,
       sync,
       runExclusive,
       setDeployStatus,
@@ -117,5 +105,5 @@ export function useDeploy() {
     ]
   );
 
-  return { deploy };
+  return { deploy, isReady };
 }
