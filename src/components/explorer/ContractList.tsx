@@ -98,7 +98,6 @@ function ContractItem({
   const canDeploy =
     !isReadOnly &&
     contract.compileStatus === "success" &&
-    contract.deployStatus !== "deployed" &&
     contract.deployStatus !== "deploying" &&
     isReady;
 
@@ -161,24 +160,26 @@ function ContractItem({
         </button>
       )}
 
-      {!isReadOnly &&
-        contract.compileStatus === "success" &&
-        contract.deployStatus !== "deployed" && (
-          <button
-            onClick={handleDeploy}
-            disabled={!canDeploy}
-            title={deployTooltip ?? undefined}
-            className={cn(
-              "mt-1.5 w-full flex items-center justify-center gap-1 rounded py-1 text-[10px] font-medium transition-colors",
-              canDeploy
-                ? "bg-primary/20 text-primary hover:bg-primary/30"
-                : "bg-white/[0.03] text-muted-foreground/40 cursor-not-allowed"
-            )}
-          >
-            <Upload className="h-3 w-3" />
-            {contract.deployStatus === "deploying" ? "Deploying..." : "Deploy"}
-          </button>
-        )}
+      {!isReadOnly && contract.compileStatus === "success" && (
+        <button
+          onClick={handleDeploy}
+          disabled={!canDeploy}
+          title={deployTooltip ?? undefined}
+          className={cn(
+            "mt-1.5 w-full flex items-center justify-center gap-1 rounded py-1 text-[10px] font-medium transition-colors",
+            canDeploy
+              ? "bg-primary/20 text-primary hover:bg-primary/30"
+              : "bg-white/[0.03] text-muted-foreground/40 cursor-not-allowed"
+          )}
+        >
+          <Upload className="h-3 w-3" />
+          {contract.deployStatus === "deploying"
+            ? "Deploying..."
+            : contract.deployStatus === "deployed"
+              ? "Redeploy"
+              : "Deploy"}
+        </button>
+      )}
     </div>
   );
 }
