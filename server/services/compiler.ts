@@ -165,13 +165,16 @@ fn run(_arg: Word, account: &mut Account) {
       }
 
       // Build a bash script that compiles all tx-scripts sequentially
-      // Share cargo target dir with the main contract build for faster deps compilation
-      const buildScript = methods.map(m =>
-        `cd /project/__tx_${m} && CARGO_TARGET_DIR=/project/__tx_${m}/target cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
+      // Build script with progress markers
+      const total = methods.length;
+      const buildScript = methods.map((m, i) =>
+        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && cargo miden build --release 2>&1 && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
       ).join(" ; ");
 
       try {
-        const txOutput = await new Promise<string>((resolve, reject) => {
+        // Run tx-script compilation and collect output line by line
+        const txOutputLines: string[] = [];
+        await new Promise<void>((resolve, reject) => {
           const proc = spawn("docker", [
             "run", "--rm",
             "--memory=2g", "--cpus=2",
@@ -179,17 +182,31 @@ fn run(_arg: Word, account: &mut Account) {
             DOCKER_IMAGE,
             "bash", "-c", buildScript,
           ]);
-          let output = "";
+          let buffer = "";
           const timeout = setTimeout(() => { proc.kill("SIGKILL"); reject(new Error("TX scripts compile timeout")); }, TX_SCRIPTS_TIMEOUT_MS);
-          proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
-          proc.stderr.on("data", (d: Buffer) => { output += d.toString(); });
-          proc.on("close", () => { clearTimeout(timeout); resolve(output); });
+          const onData = (d: Buffer) => {
+            buffer += d.toString();
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            txOutputLines.push(...lines);
+          };
+          proc.stdout.on("data", onData);
+          proc.stderr.on("data", onData);
+          proc.on("close", () => { clearTimeout(timeout); resolve(); });
           proc.on("error", (err) => { clearTimeout(timeout); reject(err); });
         });
 
+        // Stream progress lines to the client
+        const fullTxOutput = txOutputLines.join("\n");
+        for (const line of txOutputLines) {
+          if (line.includes("TX_PROGRESS:")) {
+            yield { type: "output", text: line.replace("TX_PROGRESS:", "  ") };
+          }
+        }
+
         // Collect results
         for (const method of methods) {
-          if (txOutput.includes(`TX_OK:${method}`)) {
+          if (fullTxOutput.includes(`TX_OK:${method}`)) {
             const txMaspPath = await findMasp(join(tmpDir, `__tx_${method}`));
             if (txMaspPath) {
               const txMaspBytes = await readFile(txMaspPath);
