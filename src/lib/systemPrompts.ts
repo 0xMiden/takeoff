@@ -263,8 +263,8 @@ export default function App() {
           const value = account.storage().getMapItem(slotNames[0], key);
           if (value) {
             const hex = value.toHex();
-            // First felt is the counter value — first 16 hex chars after "0x"
-            const num = Number(BigInt("0x" + hex.slice(2, 18)));
+            // First felt = first 16 hex chars after "0x", little-endian byte order
+            const num = Number(BigInt("0x" + hex.slice(2, 18).match(/../g).reverse().join("")));
             setCounterValue(num);
           }
         }
