@@ -97,27 +97,50 @@ export async function compileComponent(
   }
 
   // Step 4: Build variable declarations from import bindings
+  // Filter out "React" default import — we inject it ourselves
   const bindingCode = imports
-    .map((imp, i) => buildBindings(imp.bindings, `__mod_${i}`))
+    .map((imp, i) => {
+      let bindings = buildBindings(imp.bindings, `__mod_${i}`);
+      // Remove any "const React = ..." line — we provide React via __React
+      bindings = bindings
+        .split("\n")
+        .filter((line) => !line.match(/^const React\s*=/))
+        .join("\n");
+      return bindings;
+    })
     .join("\n");
 
-  // Step 5: Strip export statements
+  // Step 5: Strip export statements and capture the exported function name
+  let exportedFnName: string | null = null;
   let strippedCode = transpiled
-    .replace(/export\s+default\s+function\s+/g, "function ")
+    .replace(/export\s+default\s+function\s+(\w+)/g, (_match, name) => {
+      exportedFnName = name;
+      return `function ${name}`;
+    })
     .replace(/export\s+default\s+/g, "const __default = ")
     .replace(/export\s+function\s+/g, "function ")
     .replace(/export\s+const\s+/g, "const ")
     .replace(/export\s+\{[^}]*\};?/g, "");
 
   // Step 6: Wrap and execute
+  // Build the return statement to find the component by any name
+  const returnExpr = [
+    "typeof App !== 'undefined' ? App",
+    exportedFnName && exportedFnName !== "App"
+      ? `typeof ${exportedFnName} !== 'undefined' ? ${exportedFnName}`
+      : null,
+    "typeof __default !== 'undefined' ? __default",
+    "(() => { throw new Error('No default export found.'); })()",
+  ]
+    .filter(Boolean)
+    .join(" :\n       ");
+
   const wrappedCode = `
 const React = __React;
 ${bindingCode}
 ${strippedCode}
 
-return typeof App !== 'undefined' ? App :
-       typeof __default !== 'undefined' ? __default :
-       (() => { throw new Error('No default export found. Export a default function component.'); })();
+return ${returnExpr};
 `;
 
   let fn: Function;
