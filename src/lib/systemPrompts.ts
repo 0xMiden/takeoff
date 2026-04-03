@@ -196,7 +196,13 @@ Keys are Rust method names with underscores (e.g., \`increment_count\`, \`get_co
 5. Build request: \`new TransactionRequestBuilder().withCustomScript(txScript).build()\`
 6. Submit against the CONTRACT account object: \`await client.submitNewTransaction(account.id(), txRequest)\`
    **CRITICAL: Use account.id() from getContractAccount(), NEVER signerAccountId. The transaction must execute against the contract, not the wallet.**
-7. Sync: \`await sync()\` then re-read storage
+7. Close the \`runExclusive\` block, THEN sync and re-read:
+   \`\`\`
+   }); // end runExclusive
+   await sync();
+   await readCounterValue();
+   \`\`\`
+   **CRITICAL: sync() and re-read MUST be OUTSIDE runExclusive. Putting them inside causes a deadlock.**
 
 ## Required Imports
 
