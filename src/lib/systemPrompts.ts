@@ -218,5 +218,6 @@ Storage reading is handled by \`window.__midenReadStorage\` and \`window.__miden
 - No simulations, no setTimeout fakes, no disclaimers — this is real testnet
 - Word hex is little-endian — always reverse bytes when converting to number
 - Do NOT use TypeScript generics or type annotations (e.g., \`useState<number>(0)\`) — use plain JS: \`useState(0)\`
-- Always submit transactions against the CONTRACT account (\`account.id()\`), NEVER against \`signerAccountId\``;
+- Always submit transactions against the CONTRACT account (\`account.id()\`), NEVER against \`signerAccountId\`
+- Always start your response with a brief description of what you're building (1-2 sentences) before the code block`;
 }
