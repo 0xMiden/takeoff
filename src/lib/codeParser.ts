@@ -24,7 +24,7 @@ export function extractCodeBlocks(content: string): ExtractedCodeBlock[] {
 
     // Default path based on language if AI didn't include one
     if (!suggestedPath) {
-      if (language === "tsx" || language === "typescriptreact") {
+      if (language === "tsx" || language === "typescriptreact" || language === "jsx" || language === "javascript" || language === "typescript" || language === "js" || language === "ts") {
         suggestedPath = "/src/App.tsx";
       } else if (language === "rust" || language === "rs") {
         suggestedPath = "/src/lib.rs";
