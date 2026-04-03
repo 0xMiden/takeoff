@@ -175,7 +175,8 @@ Keys are Rust method names with underscores (e.g., \`increment_count\`, \`get_co
 2. Deserialize: \`const pkg = Package.deserialize(contractData.txScripts[name])\`
 3. Create script: \`const txScript = TransactionScript.fromPackage(pkg)\`
 4. Build request: \`new TransactionRequestBuilder().withCustomScript(txScript).build()\`
-5. Submit: \`await client.submitNewTransaction(account.id(), txRequest)\`
+5. Submit against the CONTRACT account (NOT the signer): \`await client.submitNewTransaction(contractAccount.id(), txRequest)\`
+   **CRITICAL: The first argument must be the contract's AccountId, not signerAccountId.**
 6. Sync: \`await sync()\` then re-read storage
 
 ## Required Imports
