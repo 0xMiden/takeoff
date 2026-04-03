@@ -61,14 +61,7 @@ export function useChat() {
           },
           onDone: () => {
             // Extract code blocks and attach to message
-            console.log("[chat] Full response length:", fullContent.length);
-            console.log("[chat] Response ends with:", JSON.stringify(fullContent.slice(-100)));
-            console.log("[chat] Contains ``` count:", (fullContent.match(/```/g) || []).length);
             const codeBlocks = extractCodeBlocks(fullContent);
-            console.log("[chat] Extracted code blocks:", codeBlocks.length, codeBlocks.map(b => ({ lang: b.language, path: b.suggestedPath, lines: b.code.split("\n").length })));
-            console.log("[chat] Mode:", mode, "Key:", mode === "contracts" ? "contractChat" : "dappChat");
-            console.log("[chat] Chat length before update:", usePlaygroundStore.getState()[mode === "contracts" ? "contractChat" : "dappChat"].length);
-            console.log("[chat] Looking for assistantId:", assistantId);
             const state = usePlaygroundStore.getState();
             const key = mode === "contracts" ? "contractChat" : "dappChat";
             usePlaygroundStore.setState({
