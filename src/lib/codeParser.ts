@@ -33,7 +33,11 @@ export function extractCodeBlocks(content: string): ExtractedCodeBlock[] {
       }
     }
 
-    blocks.push({ language, code: cleanCode, suggestedPath });
+    // Skip short snippets (< 3 lines) — these are inline explanations, not full files
+    const lineCount = cleanCode.split("\n").length;
+    if (lineCount >= 3) {
+      blocks.push({ language, code: cleanCode, suggestedPath });
+    }
   }
 
   return blocks;
