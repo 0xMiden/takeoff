@@ -11,8 +11,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
-      // Use local patched build of miden-sdk (with readNumber/readValue)
-      "@miden-sdk/miden-sdk": path.resolve(__dirname, "../miden-client/crates/web-client"),
+      // NOTE: Using patched @miden-sdk/miden-sdk (getItem fix for StorageMap)
+      // Patched dist was copied over node_modules/@miden-sdk/miden-sdk/dist/
+      // To re-patch after yarn install: cp -r ../miden-client/crates/web-client/dist/* node_modules/@miden-sdk/miden-sdk/dist/
     },
   },
   server: {
