@@ -11,6 +11,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      // Use local patched build of miden-sdk (with readNumber/readValue)
+      "@miden-sdk/miden-sdk": path.resolve(__dirname, "../miden-client/crates/web-client"),
     },
   },
   server: {
