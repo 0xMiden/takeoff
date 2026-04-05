@@ -4,7 +4,7 @@ import { compileContract } from "../services/compiler.js";
 const router = Router();
 
 let activeCompilations = 0;
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = 1; // Serialized — shared Docker cache is not concurrent-safe
 
 router.post("/compile", async (req: Request, res: Response) => {
   const { files } = req.body as { files?: Record<string, string> };

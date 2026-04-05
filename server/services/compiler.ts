@@ -89,6 +89,9 @@ export async function* compileContract(
   files: Record<string, string>
 ): AsyncGenerator<CompileEvent, void, unknown> {
   const tmpDir = await mkdtemp(join(tmpdir(), "miden-compile-"));
+  // Shared target dir — deps are cached across compilations
+  // Concurrent safety: MAX_CONCURRENT=1 ensures only one build at a time
+  const cacheTargetDir = `/cache/target/contract`;
 
   try {
     // Write project files
@@ -123,10 +126,10 @@ export async function* compileContract(
       `-v=${tmpDir}:/project`,
       `-v=${CARGO_REGISTRY_VOLUME}:/usr/local/cargo/registry`,
       `-v=${CARGO_TARGET_VOLUME}:/cache/target`,
-      `-e`, `CARGO_TARGET_DIR=/cache/target/contract`,
+      `-e`, `CARGO_TARGET_DIR=${cacheTargetDir}`,
       DOCKER_IMAGE,
       "bash", "-c",
-      "rm -rf /cache/target/contract/miden/release/*.masp 2>/dev/null; CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release --emit masp,masm && mkdir -p /project/target && cp -r /cache/target/contract/miden /project/target/miden 2>/dev/null && cp -r /cache/target/contract/generated-wit /project/target/generated-wit 2>/dev/null; true",
+      `rm -rf ${cacheTargetDir}/miden/release/*.masp 2>/dev/null; CARGO_TARGET_DIR=${cacheTargetDir} cargo miden build --release --emit masp,masm && mkdir -p /project/target && cp -r ${cacheTargetDir}/miden /project/target/miden 2>/dev/null && cp -r ${cacheTargetDir}/generated-wit /project/target/generated-wit 2>/dev/null; true`,
     ], COMPILE_TIMEOUT_MS);
 
     let exitCode = 1;
@@ -218,10 +221,10 @@ fn run(_arg: Word, account: &mut Account) {
       // Build all tx-scripts in one Docker run, sharing the cargo cache volume
       const total = methods.length;
       // Clean stale .masp files from the shared target before rebuilding tx-scripts
-      const cleanScript = `rm -f /cache/target/contract/miden/release/tx_*.masp 2>/dev/null; true`;
+      const cleanScript = `rm -f ${cacheTargetDir}/miden/release/tx_*.masp 2>/dev/null; true`;
       // Reuse the contract's target dir — all deps are already compiled there
       const buildScript = [cleanScript, ...methods.map((m, i) =>
-        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release 2>&1 && mkdir -p /project/__tx_${m}/target && cp -r /cache/target/contract/miden /project/__tx_${m}/target/miden 2>/dev/null && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
+        `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && CARGO_TARGET_DIR=${cacheTargetDir} cargo miden build --release 2>&1 && mkdir -p /project/__tx_${m}/target && cp -r ${cacheTargetDir}/miden /project/__tx_${m}/target/miden 2>/dev/null && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
       )].join(" ; ");
 
       const txRunner = runDocker([
@@ -250,7 +253,7 @@ fn run(_arg: Word, account: &mut Account) {
       }
 
       // Collect results — find the specific tx-script .masp by name
-      // The .masp files are in /cache/target/contract/miden/release/ (shared target)
+      // The .masp files are in ${cacheTargetDir}/miden/release/ (shared target)
       // Naming: package "tx-increment-count" → "tx_increment_count.masp"
       for (const method of methods) {
         if (txFullOutput.includes(`TX_OK:${method}`)) {
