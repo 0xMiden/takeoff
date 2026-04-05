@@ -126,7 +126,7 @@ export async function* compileContract(
       `-e`, `CARGO_TARGET_DIR=/cache/target/contract`,
       DOCKER_IMAGE,
       "bash", "-c",
-      "CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release --emit masp,masm && mkdir -p /project/target && cp -r /cache/target/contract/miden /project/target/miden 2>/dev/null && cp -r /cache/target/contract/generated-wit /project/target/generated-wit 2>/dev/null; true",
+      "rm -rf /cache/target/contract/miden/release/*.masp 2>/dev/null; CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release --emit masp,masm && mkdir -p /project/target && cp -r /cache/target/contract/miden /project/target/miden 2>/dev/null && cp -r /cache/target/contract/generated-wit /project/target/generated-wit 2>/dev/null; true",
     ], COMPILE_TIMEOUT_MS);
 
     let exitCode = 1;
@@ -217,10 +217,12 @@ fn run(_arg: Word, account: &mut Account) {
 
       // Build all tx-scripts in one Docker run, sharing the cargo cache volume
       const total = methods.length;
+      // Clean stale .masp files from the shared target before rebuilding tx-scripts
+      const cleanScript = `rm -f /cache/target/contract/miden/release/tx_*.masp 2>/dev/null; true`;
       // Reuse the contract's target dir — all deps are already compiled there
-      const buildScript = methods.map((m, i) =>
+      const buildScript = [cleanScript, ...methods.map((m, i) =>
         `echo "TX_PROGRESS:${i + 1}/${total} Compiling tx-script for ${m}..." && cd /project/__tx_${m} && CARGO_TARGET_DIR=/cache/target/contract cargo miden build --release 2>&1 && mkdir -p /project/__tx_${m}/target && cp -r /cache/target/contract/miden /project/__tx_${m}/target/miden 2>/dev/null && echo "TX_OK:${m}" || echo "TX_FAIL:${m}"`
-      ).join(" ; ");
+      )].join(" ; ");
 
       const txRunner = runDocker([
         "run", "--rm",
