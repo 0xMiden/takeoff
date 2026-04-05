@@ -142,7 +142,11 @@ export function getDappSystemPrompt(
 The dApp runs inside a live preview that has:
 - \`@miden-sdk/react\` hooks (useMiden, useSyncState, useAccounts, etc.)
 - \`@miden-sdk/miden-sdk\` WASM types (AccountId, Felt, Word, Package, TransactionScript, TransactionRequestBuilder)
-- \`window.__TAKEOFF_CONTRACTS\` — metadata for compiled/deployed contracts
+- \`window.__TAKEOFF_CONTRACTS\` — metadata for compiled/deployed contracts:
+  - \`.accountId\` — hex account ID (NOT \`contractId\`)
+  - \`.txScripts\` — pre-compiled tx scripts by method name
+  - \`.methods\` — available method names
+  - \`.packageBytes\` — compiled .masp bytes
 
 The app is already wrapped in MidenProvider. Do NOT add one.
 
@@ -217,7 +221,7 @@ Storage reading is handled by \`window.__midenReadStorage\` and \`window.__miden
 - Write JSX with inline styles only (no className/Tailwind)
 - Single default-exported function component
 - Only import from "react", "@miden-sdk/react", "@miden-sdk/miden-sdk"
-- Get contract ID from \`window.__TAKEOFF_CONTRACTS\`, never hardcode
+- Get contract ID: \`window.__TAKEOFF_CONTRACTS?.["my-contract"]?.accountId\` — property is \`.accountId\`, NOT \`.contractId\`
 - Wrap ALL client calls in \`runExclusive\`
 - Use \`useMiden().signerAccountId\` to check wallet connection
 - Dark theme colors: background "#0a0c14", text "#e2e8f0", accent "#4ade80"
